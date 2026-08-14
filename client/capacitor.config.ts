@@ -1,11 +1,11 @@
 import type { CapacitorConfig } from '@capacitor/cli';
 
 const config: CapacitorConfig = {
-  appId: 'com.smartschool.app',
-  appName: 'Demo Smart School',
+  appId: 'com.demoprivatesmartschool.app',
+  appName: 'Demo Private Smart School',
   webDir: 'public',
   server: {
-    url: 'https://demo-private-school.vercel.app',
+    url: 'https://demoprivatesmartschool.vercel.app',
     cleartext: true
   },
   plugins: {

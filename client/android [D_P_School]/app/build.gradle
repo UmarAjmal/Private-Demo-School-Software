@@ -1,7 +1,7 @@
 apply plugin: 'com.android.application'
 
 android {
-    namespace "com.smartschool.app"
+    namespace "com.demoprivatesmartschool.app"
     compileSdk rootProject.ext.compileSdkVersion
     defaultConfig {
         applicationId "com.demosmartschool.app"

@@ -1,4 +1,4 @@
-package com.smartschool.app;
+package com.demoprivatesmartschool.app;
 
 import com.getcapacitor.BridgeActivity;
 

@@ -1,6 +1,6 @@
 # 🎓 Smart School Management System (Enterprise Edition)
 
-[![Production Web](https://img.shields.io/badge/Live%20Web-Vercel-000000?style=for-the-badge&logo=vercel&logoColor=white)](https://demo-private-school.vercel.app)
+[![Production Web](https://img.shields.io/badge/Live%20Web-Vercel-000000?style=for-the-badge&logo=vercel&logoColor=white)](https://demoprivatesmartschool.vercel.app)
 [![Production API](https://img.shields.io/badge/Live%20API-Render-46E3B7?style=for-the-badge&logo=render&logoColor=white)](https://shmool.onrender.com)
 [![Mobile App](https://img.shields.io/badge/Mobile-Android%20APK-3DDC84?style=for-the-badge&logo=android&logoColor=white)](#-mobile-application-android)
 [![Next.js](https://img.shields.io/badge/Frontend-Next.js%2014-black?style=for-the-badge&logo=next.js)](https://nextjs.org/)
@@ -16,7 +16,7 @@ An end-to-end, multi-tenant enterprise School Management System (SMS) engineered
 
 | Platform | Link / Details | Credentials / Status |
 | :--- | :--- | :--- |
-| 🌐 **Live Web Application (Vercel)** | [https://demo-private-school.vercel.app](https://demo-private-school.vercel.app) | Production Deployment ✅ |
+| 🌐 **Live Web Application (Vercel)** | [https://demoprivatesmartschool.vercel.app](https://demoprivatesmartschool.vercel.app) | Production Deployment ✅ |
 | ⚡ **Live Backend API (Render)** | [https://shmool.onrender.com](https://shmool.onrender.com) | Health Check: `/api/system/health` ✅ |
 | 📱 **Android App (APK Build)** | Built via Capacitor in `client/android [D_P_School]` | Standalone Package ID: `com.demosmartschool.app` |
 | 🔑 **Default Admin Login** | Username: `root` \| Password: `root123` | Full System Access |
@@ -183,11 +183,11 @@ The project includes a ready-to-build **Capacitor 6 Android project** located in
 `client/android [D_P_School]`
 
 ### Mobile App Specifications
-- **App Name**: `Demo Smart School`
+- **App Name**: `Demo Private Smart School`
 - **Application ID (Package Name)**: `com.demosmartschool.app` *(Unique package ID allowing side-by-side installation with other school apps without replacement)*
-- **Capacitor Bridge Package**: `com.smartschool.app`
+- **Capacitor Bridge Package**: `com.demoprivatesmartschool.app`
 - **Cleartext Traffic**: Enabled (`android:usesCleartextTraffic="true"`) for smooth API connectivity.
-- **Live Sync**: Points to production URL (`https://demo-private-school.vercel.app`).
+- **Live Sync**: Points to production URL (`https://demoprivatesmartschool.vercel.app`).
 
 ### Compiling APK in Android Studio
 1. Open Android Studio.

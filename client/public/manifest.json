@@ -1,6 +1,6 @@
 {
-  "name": "Demo Smart School",
-  "short_name": "Demo Smart School",
+  "name": "Demo Private Smart School",
+  "short_name": "Demo Private Smart School",
   "description": "Smart school management system for students, fees, attendance, HRM, and reports.",
   "start_url": "/",
   "scope": "/",
