@@ -36,8 +36,8 @@ export default function UsersPage() {
     const fetchData = async () => {
         try {
             const [uRes, rRes] = await Promise.all([
-                fetch(`${process.env.NEXT_PUBLIC_API_URL || "https://shmool.onrender.com"}` + '/users'),
-                fetch(`${process.env.NEXT_PUBLIC_API_URL || "https://shmool.onrender.com"}` + '/roles')
+                fetch(`${process.env.NEXT_PUBLIC_API_URL || "https://shmool.onrender.com"}/users`),
+                fetch(`${process.env.NEXT_PUBLIC_API_URL || "https://shmool.onrender.com"}/roles`)
             ]);
             const uData = await uRes.json();
             const rData = await rRes.json();
@@ -67,7 +67,7 @@ export default function UsersPage() {
 
     const handleSave = async (e: React.FormEvent) => {
         e.preventDefault();
-        const url = formData.id === 0 ? `${process.env.NEXT_PUBLIC_API_URL || "https://shmool.onrender.com"}` + '/users' : `${process.env.NEXT_PUBLIC_API_URL || "https://shmool.onrender.com"}/users/${formData.id}`;
+        const url = formData.id === 0 ? `${process.env.NEXT_PUBLIC_API_URL || "https://shmool.onrender.com"}/users` : `${process.env.NEXT_PUBLIC_API_URL || "https://shmool.onrender.com"}/users/${formData.id}`;
         const method = formData.id === 0 ? 'POST' : 'PUT';
 
         try {

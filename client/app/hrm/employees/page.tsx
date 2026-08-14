@@ -65,9 +65,9 @@ export default function EmployeesPage() {
     const fetchData = async () => {
         try {
             const [empRes, deptRes, roleRes] = await Promise.all([
-                fetch(`${process.env.NEXT_PUBLIC_API_URL || "https://shmool.onrender.com"}` + '/hrm/employees'),
-                fetch(`${process.env.NEXT_PUBLIC_API_URL || "https://shmool.onrender.com"}` + '/hrm/departments'),
-                fetch(`${process.env.NEXT_PUBLIC_API_URL || "https://shmool.onrender.com"}` + '/roles') // Assuming this exists from previous modules
+                fetch(`${process.env.NEXT_PUBLIC_API_URL || "https://shmool.onrender.com"}/hrm/employees`),
+                fetch(`${process.env.NEXT_PUBLIC_API_URL || "https://shmool.onrender.com"}/hrm/departments`),
+                fetch(`${process.env.NEXT_PUBLIC_API_URL || "https://shmool.onrender.com"}/roles`) // Assuming this exists from previous modules
             ]);
 
             if (empRes.ok) setEmployees(await empRes.json());
@@ -100,7 +100,7 @@ export default function EmployeesPage() {
         resetForm();
         setModalMode('edit');
         setSelectedId(emp.employee_id);
-        // setIsSysUser stays false — show toggle only if employee has no user
+        // setIsSysUser stays false show toggle only if employee has no user
         setFormData({
             first_name: emp.first_name || '',
             last_name: emp.last_name || '',
@@ -138,7 +138,7 @@ export default function EmployeesPage() {
 
         const payload = { ...formData, create_system_user: isSysUser };
         const url = modalMode === 'create'
-            ? `${process.env.NEXT_PUBLIC_API_URL || "https://shmool.onrender.com"}` + '/hrm/employees'
+            ? `${process.env.NEXT_PUBLIC_API_URL || "https://shmool.onrender.com"}/hrm/employees`
             : `${process.env.NEXT_PUBLIC_API_URL || "https://shmool.onrender.com"}/hrm/employees/${selectedId}`;
 
         const method = modalMode === 'create' ? 'POST' : 'PUT';
@@ -392,7 +392,7 @@ export default function EmployeesPage() {
                                                 <label className="form-label small fw-bold">Salary (PKR)</label>
                                                 <div className="input-group">
                                                     <span className="input-group-text">$</span>
-                                                    <input type="number" className="form-control" value={formData.salary} onChange={e => setFormData({ ...formData, salary: e.target.value })} />
+                                                    <input type="number" className="form-control" value={formData.salary} onKeyDown={e => ['e', 'E', '+', '-'].includes(e.key) && e.preventDefault()} onChange={e => setFormData({ ...formData, salary: e.target.value })} />
                                                 </div>
                                             </div>
 

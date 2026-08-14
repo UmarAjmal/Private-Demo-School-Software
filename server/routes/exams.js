@@ -54,7 +54,7 @@ function parseUserId(input) {
 
 async function getUserContext(client, userId) {
     const userRes = await client.query(
-        `SELECT u.id, u.is_active, r.role_name
+        `SELECT u.id, u.is_active, r.role_name, r.role_level
          FROM app_users u
          LEFT JOIN app_roles r ON r.id = u.role_id
          WHERE u.id = $1`,
@@ -70,7 +70,9 @@ async function getUserContext(client, userId) {
         return { error: { status: 403, message: 'User is inactive' } };
     }
 
-    const isAdmin = user.role_name === 'Administrator';
+    // Role hierarchy: Admin(90+) can do anything, Supervisor(65+) can supervise/manage teachers
+    const isAdmin = (user.role_level || 0) >= 90;
+    const isSupervisor = (user.role_level || 0) >= 65;
 
     const empRes = await client.query(
         `SELECT employee_id
@@ -84,6 +86,7 @@ async function getUserContext(client, userId) {
     return {
         user,
         isAdmin,
+        isSupervisor,
         employeeId: empRes.rows[0]?.employee_id || null
     };
 }
@@ -112,34 +115,47 @@ async function getActiveAcademicYear(client) {
 async function canTeacherAccessSheet(client, employeeId, classId, sectionId, subjectId) {
     if (!employeeId) return false;
 
-    const accessRes = await client.query(
+    // Check class assignment
+    let accessRes = await client.query(
         `SELECT 1
          FROM teacher_class_assignment tca
-         JOIN teacher_subject_assignment tsa
-           ON tsa.employee_id = tca.employee_id
-          AND tsa.subject_id = $4
-         JOIN subjects s
-           ON s.subject_id = tsa.subject_id
-          AND s.section_id = tca.section_id
          WHERE tca.employee_id = $1
            AND tca.class_id = $2
            AND tca.section_id = $3
+           AND tca.is_class_teacher = true
          LIMIT 1`,
-        [employeeId, classId, sectionId, subjectId]
+        [employeeId, classId, sectionId]
     );
 
-    return accessRes.rows.length > 0;
+    if (accessRes.rows.length > 0) return true;
+
+    // Check optional subject assignment
+    if (subjectId) {
+        accessRes = await client.query(
+            `SELECT 1
+             FROM teacher_subject_assignment tsa
+             WHERE tsa.employee_id = $1
+               AND tsa.subject_id = $2
+             LIMIT 1`,
+            [employeeId, subjectId]
+        );
+        if (accessRes.rows.length > 0) return true;
+    }
+
+    return false;
 }
 
 async function canTeacherAccessClassSection(client, employeeId, classId, sectionId) {
     if (!employeeId) return false;
 
-    const accessRes = await client.query(
+    // Check class assignment
+    let accessRes = await client.query(
         `SELECT 1
          FROM teacher_class_assignment
          WHERE employee_id = $1
            AND class_id = $2
            AND section_id = $3
+           AND is_class_teacher = true
          LIMIT 1`,
         [employeeId, classId, sectionId]
     );
@@ -239,7 +255,8 @@ router.get('/context', async (req, res) => {
         let sections = [];
         let subjects = [];
 
-        if (ctx.isAdmin) {
+        // Admin (>=90) and Supervisor (>=65) can see all classes
+        if (ctx.isAdmin || ctx.isSupervisor) {
             const classRes = await client.query(`SELECT class_id, class_name FROM classes ORDER BY class_name ASC`);
             const sectionRes = await client.query(`SELECT section_id, section_name, class_id FROM sections ORDER BY class_id, section_name ASC`);
             const subjectRes = await client.query(
@@ -256,6 +273,7 @@ router.get('/context', async (req, res) => {
             sections = sectionRes.rows;
             subjects = subjectRes.rows;
         } else {
+            // Teacher: See only assigned classes
             if (!ctx.employeeId) {
                 return res.json({
                     is_admin: false,
@@ -272,16 +290,24 @@ router.get('/context', async (req, res) => {
                     c.class_id, c.class_name,
                     sec.section_id, sec.section_name,
                     s.subject_id, s.subject_name, s.subject_code
+                 FROM teacher_subject_assignment tsa
+                 JOIN subjects s ON s.subject_id = tsa.subject_id
+                 JOIN sections sec ON sec.section_id = s.section_id
+                 JOIN classes c ON c.class_id = sec.class_id
+                 WHERE tsa.employee_id = $1
+
+                 UNION
+
+                 SELECT DISTINCT
+                    c.class_id, c.class_name,
+                    sec.section_id, sec.section_name,
+                    NULL::int as subject_id, NULL::varchar as subject_name, NULL::varchar as subject_code
                  FROM teacher_class_assignment tca
                  JOIN classes c ON c.class_id = tca.class_id
                  JOIN sections sec ON sec.section_id = tca.section_id
-                 JOIN teacher_subject_assignment tsa
-                   ON tsa.employee_id = tca.employee_id
-                 JOIN subjects s
-                   ON s.subject_id = tsa.subject_id
-                  AND s.section_id = sec.section_id
-                 WHERE tca.employee_id = $1
-                 ORDER BY c.class_name, sec.section_name, s.subject_name`,
+                 WHERE tca.employee_id = $1 AND tca.is_class_teacher = true
+
+                 ORDER BY class_name, section_name, subject_name`,
                 [ctx.employeeId]
             );
 
@@ -299,15 +325,17 @@ router.get('/context', async (req, res) => {
 
             classes = Array.from(classMap.values());
             sections = Array.from(sectionMap.values());
-            subjects = scopeRes.rows.map(r => ({
-                subject_id: r.subject_id,
-                subject_name: r.subject_name,
-                subject_code: r.subject_code,
-                section_id: r.section_id,
-                section_name: r.section_name,
-                class_id: r.class_id,
-                class_name: r.class_name
-            }));
+            subjects = scopeRes.rows
+                .filter(r => r.subject_id !== null && r.subject_id !== undefined)
+                .map(r => ({
+                    subject_id: r.subject_id,
+                    subject_name: r.subject_name,
+                    subject_code: r.subject_code,
+                    section_id: r.section_id,
+                    section_name: r.section_name,
+                    class_id: r.class_id,
+                    class_name: r.class_name
+                }));
         }
 
         res.json({
@@ -317,6 +345,92 @@ router.get('/context', async (req, res) => {
             classes,
             sections,
             subjects
+        });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: err.message });
+    } finally {
+        client.release();
+    }
+});
+
+router.get('/context/class-teacher', async (req, res) => {
+    const client = await pool.connect();
+    try {
+        const userId = parseUserId(req.query.user_id);
+        if (!userId) {
+            return res.status(400).json({ error: 'user_id is required' });
+        }
+
+        const ctx = await getUserContext(client, userId);
+        if (ctx.error) return res.status(ctx.error.status).json({ error: ctx.error.message });
+
+        const activeYear = await getActiveAcademicYear(client);
+        if (!activeYear) {
+            return res.status(404).json({ error: 'No academic year found. Please create/activate one first.' });
+        }
+
+        const termRes = await client.query(
+            `SELECT id, term_name, start_date, end_date
+             FROM academic_terms
+             WHERE academic_year_id = $1
+             ORDER BY id ASC`,
+            [activeYear.id]
+        );
+
+        let classes = [];
+        let sections = [];
+
+        if (ctx.isAdmin || ctx.isSupervisor) {
+            const classRes = await client.query(`SELECT class_id, class_name FROM classes ORDER BY class_name ASC`);
+            const sectionRes = await client.query(`SELECT section_id, section_name, class_id FROM sections ORDER BY class_id, section_name ASC`);
+            classes = classRes.rows;
+            sections = sectionRes.rows;
+        } else {
+            if (!ctx.employeeId) {
+                return res.json({
+                    is_admin: false,
+                    active_year: activeYear,
+                    terms: termRes.rows,
+                    classes: [],
+                    sections: []
+                });
+            }
+
+            const scopeRes = await client.query(
+                `SELECT DISTINCT
+                    c.class_id, c.class_name,
+                    sec.section_id, sec.section_name
+                 FROM teacher_class_assignment tca
+                 JOIN classes c ON c.class_id = tca.class_id
+                 JOIN sections sec ON sec.section_id = tca.section_id
+                 WHERE tca.employee_id = $1 AND tca.is_class_teacher = true
+                 ORDER BY class_name, section_name`,
+                [ctx.employeeId]
+            );
+
+            const classMap = new Map();
+            const sectionMap = new Map();
+
+            for (const row of scopeRes.rows) {
+                classMap.set(row.class_id, { class_id: row.class_id, class_name: row.class_name });
+                sectionMap.set(row.section_id, {
+                    section_id: row.section_id,
+                    section_name: row.section_name,
+                    class_id: row.class_id
+                });
+            }
+
+            classes = Array.from(classMap.values());
+            sections = Array.from(sectionMap.values());
+        }
+
+        res.json({
+            is_admin: ctx.isAdmin,
+            active_year: activeYear,
+            terms: termRes.rows,
+            classes,
+            sections
         });
     } catch (err) {
         console.error(err);
@@ -344,7 +458,8 @@ router.get('/marking-sheet', async (req, res) => {
         const ctx = await getUserContext(client, userId);
         if (ctx.error) return res.status(ctx.error.status).json({ error: ctx.error.message });
 
-        if (!ctx.isAdmin) {
+        // Allow if: Admin OR Supervisor (Coordinator/Head/VP) OR assigned teacher
+        if (!ctx.isAdmin && !ctx.isSupervisor) {
             const allowed = await canTeacherAccessSheet(client, ctx.employeeId, classId, sectionId, subjectId);
             if (!allowed) return res.status(403).json({ error: 'You are not assigned to this class/section/subject' });
         }
@@ -439,7 +554,8 @@ router.post('/marks/save', async (req, res) => {
         const ctx = await getUserContext(client, userId);
         if (ctx.error) return res.status(ctx.error.status).json({ error: ctx.error.message });
 
-        if (!ctx.isAdmin) {
+        // Allow if: Admin OR Supervisor (Coordinator/Head/VP) OR assigned teacher
+        if (!ctx.isAdmin && !ctx.isSupervisor) {
             const allowed = await canTeacherAccessSheet(client, ctx.employeeId, classId, sectionId, subjectId);
             if (!allowed) return res.status(403).json({ error: 'You are not assigned to this class/section/subject' });
 
@@ -538,6 +654,48 @@ router.post('/marks/save', async (req, res) => {
 
         await client.query('COMMIT');
 
+        // Dispatch Exam Approval & Published Result Notifications
+        try {
+            const { createNotification } = require('../utils/notify');
+            const classInfo = await pool.query(`SELECT class_name FROM classes WHERE class_id = $1`, [classId]);
+            const subInfo = await pool.query(`SELECT subject_name FROM subjects WHERE subject_id = $1`, [subjectId]);
+            const className = classInfo.rows[0]?.class_name || `Class #${classId}`;
+            const subName = subInfo.rows[0]?.subject_name || `Subject #${subjectId}`;
+
+            // 1. Notify Higher Roles (Admin, Principal, Vice Principal, Coordinator)
+            const rolesToNotify = ['admin', 'principal', 'vice_principal', 'coordinator'];
+            for (const rName of rolesToNotify) {
+                await createNotification({
+                    role: rName,
+                    type: 'exam_approval',
+                    title: 'Exam Marks Submitted for Approval 📝',
+                    message: `Exam/Test marks for ${className} (${subName}) have been recorded & locked by staff. Click to review and approve.`,
+                    link: '/examination/marks'
+                });
+            }
+
+            // 2. Notify Families of students
+            for (const row of marks) {
+                const sId = Number(row.student_id);
+                const sInfo = await pool.query(
+                    `SELECT CONCAT(first_name, ' ', last_name) AS full_name, family_id FROM students WHERE student_id = $1`,
+                    [sId]
+                );
+                if (sInfo.rows[0]) {
+                    await createNotification({
+                        familyId: sInfo.rows[0].family_id,
+                        studentId: sId,
+                        type: 'test_marks',
+                        title: 'New Exam / Test Marks Entered 📊',
+                        message: `New marks recorded for ${sInfo.rows[0].full_name} in ${className} (${subName}): ${row.obtained_marks}/${totalMarks}.`,
+                        link: `/students/profile/${sId}`
+                    });
+                }
+            }
+        } catch (notifErr) {
+            console.error("Exam notification error:", notifErr.message);
+        }
+
         res.json({
             message: ctx.isAdmin
                 ? 'Marks saved successfully.'
@@ -570,7 +728,8 @@ router.get('/result-card/students', async (req, res) => {
         const ctx = await getUserContext(client, userId);
         if (ctx.error) return res.status(ctx.error.status).json({ error: ctx.error.message });
 
-        if (!ctx.isAdmin) {
+        // Allow if: Admin OR Supervisor (Coordinator/Head/VP) OR assigned teacher
+        if (!ctx.isAdmin && !ctx.isSupervisor) {
             const allowed = await canTeacherAccessClassSection(client, ctx.employeeId, classId, sectionId);
             if (!allowed) return res.status(403).json({ error: 'You are not assigned to this class/section' });
         }
@@ -659,7 +818,8 @@ router.post('/result-card/data', async (req, res) => {
         const ctx = await getUserContext(client, userId);
         if (ctx.error) return res.status(ctx.error.status).json({ error: ctx.error.message });
 
-        if (!ctx.isAdmin) {
+        // Allow if: Admin OR Supervisor (Coordinator/Head/VP) OR assigned teacher
+        if (!ctx.isAdmin && !ctx.isSupervisor) {
             const allowed = await canTeacherAccessClassSection(client, ctx.employeeId, classId, sectionId);
             if (!allowed) return res.status(403).json({ error: 'You are not assigned to this class/section' });
         }
@@ -681,6 +841,26 @@ router.post('/result-card/data', async (req, res) => {
             return res.status(404).json({ error: 'Invalid term/class/section selection' });
         }
 
+        const teacherRes = await client.query(
+            `SELECT e.first_name, e.last_name
+             FROM teacher_class_assignment tca
+             JOIN employees e ON e.employee_id = tca.employee_id
+             WHERE tca.class_id = $1
+               AND tca.section_id = $2
+               AND tca.is_class_teacher = true
+             LIMIT 1`,
+            [classId, sectionId]
+        );
+
+        const classTeacher = teacherRes.rows.length > 0
+            ? `${teacherRes.rows[0].first_name || ''} ${teacherRes.rows[0].last_name || ''}`.trim()
+            : '';
+
+        const metaData = {
+            ...metaRes.rows[0],
+            class_teacher: classTeacher
+        };
+
         let studentIds = requestedStudentIds
             .map(v => Number(v))
             .filter(v => Number.isInteger(v) && v > 0);
@@ -692,7 +872,7 @@ router.post('/result-card/data', async (req, res) => {
         }
 
         const studentsRes = await client.query(
-            `SELECT s.student_id, s.first_name, s.last_name, s.admission_no, s.roll_no
+            `SELECT s.student_id, s.first_name, s.last_name, s.father_name, s.admission_no, s.roll_no
              FROM students s
              WHERE s.class_id = $1
                AND s.section_id = $2
@@ -766,10 +946,10 @@ router.post('/result-card/data', async (req, res) => {
         const school = {};
         if (systemRes.rows.length > 0) {
             const r = systemRes.rows[0];
-            school.school_name    = r.school_name    || '';
-            school.school_address = r.address        || '';
-            school.phone_number   = r.contact_number || '';
-            school.school_logo_url = r.logo_url      || '';
+            school.school_name = r.school_name || '';
+            school.school_address = r.address || '';
+            school.phone_number = r.contact_number || '';
+            school.school_logo_url = r.logo_url || '';
         }
 
         const markMap = new Map();
@@ -803,6 +983,7 @@ router.post('/result-card/data', async (req, res) => {
                 student_id: student.student_id,
                 first_name: student.first_name,
                 last_name: student.last_name,
+                father_name: student.father_name,
                 admission_no: student.admission_no,
                 roll_no: student.roll_no,
                 position: rankInfo.position,
@@ -816,7 +997,7 @@ router.post('/result-card/data', async (req, res) => {
         });
 
         res.json({
-            meta: metaRes.rows[0],
+            meta: metaData,
             school,
             subjects: subjectsRes.rows,
             students: studentCards
@@ -900,7 +1081,8 @@ router.get('/class-marks-sheet', async (req, res) => {
         const ctx = await getUserContext(client, userId);
         if (ctx.error) return res.status(ctx.error.status).json({ error: ctx.error.message });
 
-        if (!ctx.isAdmin) {
+        // Allow if: Admin OR Supervisor (Coordinator/Head/VP) OR assigned teacher
+        if (!ctx.isAdmin && !ctx.isSupervisor) {
             const allowed = await canTeacherAccessClassSection(client, ctx.employeeId, classId, sectionId);
             if (!allowed) return res.status(403).json({ error: 'You are not assigned to this class/section' });
         }
@@ -989,17 +1171,17 @@ router.get('/class-marks-sheet', async (req, res) => {
             markMap.set(`${mark.student_id}:${mark.subject_id}`, mark);
         }
 
-        // School info — from General Information settings (school_settings table)
+        // School info from General Information settings (school_settings table)
         const systemRes = await client.query(
             `SELECT school_name, address, contact_number, logo_url FROM school_settings LIMIT 1`
         );
         const school = {};
         if (systemRes.rows.length > 0) {
             const r = systemRes.rows[0];
-            school.school_name    = r.school_name    || '';
-            school.school_address = r.address        || '';
-            school.phone_number   = r.contact_number || '';
-            school.school_logo_url = r.logo_url      || '';
+            school.school_name = r.school_name || '';
+            school.school_address = r.address || '';
+            school.phone_number = r.contact_number || '';
+            school.school_logo_url = r.logo_url || '';
         }
 
         // Build student rows
@@ -1049,7 +1231,7 @@ router.get('/class-marks-sheet', async (req, res) => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// STUDENT ACADEMICS — Full Performance View for Profile Page
+// STUDENT ACADEMICS Full Performance View for Profile Page
 // ─────────────────────────────────────────────────────────────────────────────
 
 router.get('/student-academics/:student_id', async (req, res) => {
@@ -1076,7 +1258,7 @@ router.get('/student-academics/:student_id', async (req, res) => {
              JOIN subjects s ON s.subject_id = em.subject_id
              JOIN academic_terms t ON t.id = em.term_id
              JOIN academic_years ay ON ay.id = t.academic_year_id
-             WHERE em.student_id = $1
+             WHERE em.student_id = $1 AND em.status = 'published'
              ORDER BY ay.id ASC, t.id ASC, s.subject_name ASC`,
             [studentId]
         );
@@ -1097,6 +1279,7 @@ router.get('/student-academics/:student_id', async (req, res) => {
              JOIN classes c ON c.class_id = tp.class_id
              JOIN sections sec ON sec.section_id = tp.section_id
              WHERE tm.student_id = $1
+               AND tp.status = 'published'
                AND tm.obtained_marks IS NOT NULL
              ORDER BY tp.created_at ASC`,
             [studentId]
@@ -1132,13 +1315,13 @@ router.get('/student-academics/:student_id', async (req, res) => {
             }
             const pct = row.total_marks > 0 ? +((row.obtained_marks / row.total_marks) * 100).toFixed(1) : 0;
             termMap.get(key).subjects.push({
-                subject_id:    row.subject_id,
-                subject_name:  row.subject_name,
-                subject_code:  row.subject_code,
+                subject_id: row.subject_id,
+                subject_name: row.subject_name,
+                subject_code: row.subject_code,
                 obtained_marks: +Number(row.obtained_marks).toFixed(1),
-                total_marks:   +Number(row.total_marks).toFixed(1),
-                percentage:    pct,
-                grade:         gradeFromPct(pct)
+                total_marks: +Number(row.total_marks).toFixed(1),
+                percentage: pct,
+                grade: gradeFromPct(pct)
             });
         }
 
@@ -1168,15 +1351,15 @@ router.get('/student-academics/:student_id', async (req, res) => {
             }
             const pct = row.total_marks > 0 ? +((row.obtained_marks / row.total_marks) * 100).toFixed(1) : 0;
             testsBySubject.get(row.subject_id).tests.push({
-                test_id:        row.test_id,
-                test_name:      row.test_name,
-                description:    row.description,
-                total_marks:    +Number(row.total_marks).toFixed(1),
+                test_id: row.test_id,
+                test_name: row.test_name,
+                description: row.description,
+                total_marks: +Number(row.total_marks).toFixed(1),
                 obtained_marks: +Number(row.obtained_marks).toFixed(1),
-                remarks:        row.remarks,
-                percentage:     pct,
-                grade:          gradeFromPct(pct),
-                test_date:      row.test_date
+                remarks: row.remarks,
+                percentage: pct,
+                grade: gradeFromPct(pct),
+                test_date: row.test_date
             });
         }
         const testSubjects = Array.from(testsBySubject.values()).map(sub => {
@@ -1189,34 +1372,34 @@ router.get('/student-academics/:student_id', async (req, res) => {
         //   • term marks      → 65% weight
         //   • test/quiz marks → 25% weight
         //   • attendance      → 10% weight
-        const termPcts   = terms.map(t => t.term_percentage);
-        const testPcts   = testMarksRes.rows.map(r => r.total_marks > 0 ? (r.obtained_marks / r.total_marks) * 100 : 0);
-        const attPct     = att.total > 0 ? ((att.present + att.late * 0.5) / att.total) * 100 : null;
+        const termPcts = terms.map(t => t.term_percentage);
+        const testPcts = testMarksRes.rows.map(r => r.total_marks > 0 ? (r.obtained_marks / r.total_marks) * 100 : 0);
+        const attPct = att.total > 0 ? ((att.present + att.late * 0.5) / att.total) * 100 : null;
 
-        const termAvg  = termPcts.length  ? termPcts.reduce((a, b) => a + b, 0) / termPcts.length   : null;
-        const testAvg  = testPcts.length  ? testPcts.reduce((a, b) => a + b, 0) / testPcts.length   : null;
+        const termAvg = termPcts.length ? termPcts.reduce((a, b) => a + b, 0) / termPcts.length : null;
+        const testAvg = testPcts.length ? testPcts.reduce((a, b) => a + b, 0) / testPcts.length : null;
 
         // Weighted composite
         let composite = null;
         let compositeWeights = 0;
-        if (termAvg !== null)  { composite = (composite || 0) + termAvg  * 65; compositeWeights += 65; }
-        if (testAvg !== null)  { composite = (composite || 0) + testAvg  * 25; compositeWeights += 25; }
-        if (attPct  !== null)  { composite = (composite || 0) + attPct   * 10; compositeWeights += 10; }
+        if (termAvg !== null) { composite = (composite || 0) + termAvg * 65; compositeWeights += 65; }
+        if (testAvg !== null) { composite = (composite || 0) + testAvg * 25; compositeWeights += 25; }
+        if (attPct !== null) { composite = (composite || 0) + attPct * 10; compositeWeights += 10; }
         if (composite !== null && compositeWeights > 0) composite = +(composite / compositeWeights).toFixed(1);
 
-        // Trend analysis — linear regression slope on term percentages
+        // Trend analysis linear regression slope on term percentages
         let trend = 'insufficient_data';
         let trendSlope = 0;
         if (termPcts.length >= 2) {
             const n = termPcts.length;
             const xMean = (n - 1) / 2;
             const yMean = termPcts.reduce((a, b) => a + b, 0) / n;
-            const num   = termPcts.reduce((s, y, i) => s + (i - xMean) * (y - yMean), 0);
-            const den   = termPcts.reduce((s, _, i) => s + (i - xMean) ** 2, 0);
-            trendSlope  = den !== 0 ? +(num / den).toFixed(2) : 0;
-            if      (trendSlope >  3) trend = 'improving';
+            const num = termPcts.reduce((s, y, i) => s + (i - xMean) * (y - yMean), 0);
+            const den = termPcts.reduce((s, _, i) => s + (i - xMean) ** 2, 0);
+            trendSlope = den !== 0 ? +(num / den).toFixed(2) : 0;
+            if (trendSlope > 3) trend = 'improving';
             else if (trendSlope < -3) trend = 'declining';
-            else                      trend = 'stable';
+            else trend = 'stable';
         }
 
         // Next term prediction = last term pct + smoothed slope (capped 0-100)
@@ -1227,17 +1410,17 @@ router.get('/student-academics/:student_id', async (req, res) => {
         }
 
         const prediction = {
-            composite_score:  composite,
-            composite_grade:  composite !== null ? gradeFromPct(composite) : null,
-            level:            composite !== null ? levelFromPct(composite) : 'No Data',
+            composite_score: composite,
+            composite_grade: composite !== null ? gradeFromPct(composite) : null,
+            level: composite !== null ? levelFromPct(composite) : 'No Data',
             trend,
-            trend_slope:      trendSlope,
+            trend_slope: trendSlope,
             predicted_next,
-            predicted_grade:  predicted_next !== null ? gradeFromPct(predicted_next) : null,
-            term_avg:         termAvg   !== null ? +termAvg.toFixed(1)  : null,
-            test_avg:         testAvg   !== null ? +testAvg.toFixed(1)  : null,
-            attendance_pct:   attPct    !== null ? +attPct.toFixed(1)   : null,
-            data_points:      termPcts.length
+            predicted_grade: predicted_next !== null ? gradeFromPct(predicted_next) : null,
+            term_avg: termAvg !== null ? +termAvg.toFixed(1) : null,
+            test_avg: testAvg !== null ? +testAvg.toFixed(1) : null,
+            attendance_pct: attPct !== null ? +attPct.toFixed(1) : null,
+            data_points: termPcts.length
         };
 
         res.json({ terms, test_subjects: testSubjects, prediction, attendance: att });
@@ -1268,7 +1451,7 @@ function levelFromPct(pct) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// TEST MARKING — Tables + Routes
+// TEST MARKING Tables + Routes
 // ─────────────────────────────────────────────────────────────────────────────
 
 let ensureTestTablesPromise = null;
@@ -1329,8 +1512,9 @@ router.get('/tests/context', async (req, res) => {
 
         let classes = [], sections = [], subjects = [];
 
-        if (ctx.isAdmin) {
-            const classRes  = await client.query(`SELECT class_id, class_name FROM classes ORDER BY class_name ASC`);
+        // Admin (>=90) and Supervisor (>=65) can see all classes
+        if (ctx.isAdmin || ctx.isSupervisor) {
+            const classRes = await client.query(`SELECT class_id, class_name FROM classes ORDER BY class_name ASC`);
             const sectionRes = await client.query(`SELECT section_id, section_name, class_id FROM sections ORDER BY class_id, section_name ASC`);
             const subjectRes = await client.query(
                 `SELECT s.subject_id, s.subject_name, s.subject_code,
@@ -1341,7 +1525,7 @@ router.get('/tests/context', async (req, res) => {
                  JOIN classes c ON c.class_id = sec.class_id
                  ORDER BY c.class_name, sec.section_name, s.subject_name`
             );
-            classes  = classRes.rows;
+            classes = classRes.rows;
             sections = sectionRes.rows;
             subjects = subjectRes.rows;
         } else {
@@ -1353,13 +1537,24 @@ router.get('/tests/context', async (req, res) => {
                     c.class_id, c.class_name,
                     sec.section_id, sec.section_name,
                     s.subject_id, s.subject_name, s.subject_code
+                 FROM teacher_subject_assignment tsa
+                 JOIN subjects s ON s.subject_id = tsa.subject_id
+                 JOIN sections sec ON sec.section_id = s.section_id
+                 JOIN classes c ON c.class_id = sec.class_id
+                 WHERE tsa.employee_id = $1
+
+                 UNION
+
+                 SELECT DISTINCT
+                    c.class_id, c.class_name,
+                    sec.section_id, sec.section_name,
+                    NULL::int as subject_id, NULL::varchar as subject_name, NULL::varchar as subject_code
                  FROM teacher_class_assignment tca
                  JOIN classes c ON c.class_id = tca.class_id
                  JOIN sections sec ON sec.section_id = tca.section_id
-                 JOIN teacher_subject_assignment tsa ON tsa.employee_id = tca.employee_id
-                 JOIN subjects s ON s.subject_id = tsa.subject_id AND s.section_id = sec.section_id
-                 WHERE tca.employee_id = $1
-                 ORDER BY c.class_name, sec.section_name, s.subject_name`,
+                 WHERE tca.employee_id = $1 AND tca.is_class_teacher = true
+
+                 ORDER BY class_name, section_name, subject_name`,
                 [ctx.employeeId]
             );
             const classMap = new Map(), sectionMap = new Map();
@@ -1367,7 +1562,7 @@ router.get('/tests/context', async (req, res) => {
                 classMap.set(row.class_id, { class_id: row.class_id, class_name: row.class_name });
                 sectionMap.set(row.section_id, { section_id: row.section_id, section_name: row.section_name, class_id: row.class_id });
             }
-            classes  = Array.from(classMap.values());
+            classes = Array.from(classMap.values());
             sections = Array.from(sectionMap.values());
             subjects = scopeRes.rows.map(r => ({
                 subject_id: r.subject_id, subject_name: r.subject_name, subject_code: r.subject_code,
@@ -1390,8 +1585,8 @@ router.get('/tests', async (req, res) => {
     const client = await pool.connect();
     try {
         await ensureTestTables();
-        const userId    = parseUserId(req.query.user_id);
-        const classId   = Number(req.query.class_id);
+        const userId = parseUserId(req.query.user_id);
+        const classId = Number(req.query.class_id);
         const sectionId = Number(req.query.section_id);
         const subjectId = Number(req.query.subject_id);
 
@@ -1402,7 +1597,8 @@ router.get('/tests', async (req, res) => {
         const ctx = await getUserContext(client, userId);
         if (ctx.error) return res.status(ctx.error.status).json({ error: ctx.error.message });
 
-        if (!ctx.isAdmin) {
+        // Allow if: Admin OR Supervisor (Coordinator/Head/VP) OR assigned teacher
+        if (!ctx.isAdmin && !ctx.isSupervisor) {
             const allowed = await canTeacherAccessSheet(client, ctx.employeeId, classId, sectionId, subjectId);
             if (!allowed) return res.status(403).json({ error: 'You are not assigned to this class/section/subject' });
         }
@@ -1432,11 +1628,11 @@ router.post('/tests', async (req, res) => {
     const client = await pool.connect();
     try {
         await ensureTestTables();
-        const userId     = parseUserId(req.body.user_id);
-        const classId    = Number(req.body.class_id);
-        const sectionId  = Number(req.body.section_id);
-        const subjectId  = Number(req.body.subject_id);
-        const testName   = String(req.body.test_name || '').trim();
+        const userId = parseUserId(req.body.user_id);
+        const classId = Number(req.body.class_id);
+        const sectionId = Number(req.body.section_id);
+        const subjectId = Number(req.body.subject_id);
+        const testName = String(req.body.test_name || '').trim();
         const description = String(req.body.description || '').trim() || null;
         const totalMarks = Number(req.body.total_marks);
 
@@ -1451,7 +1647,8 @@ router.post('/tests', async (req, res) => {
         const ctx = await getUserContext(client, userId);
         if (ctx.error) return res.status(ctx.error.status).json({ error: ctx.error.message });
 
-        if (!ctx.isAdmin) {
+        // Allow if: Admin OR Supervisor (Coordinator/Head/VP) OR assigned teacher
+        if (!ctx.isAdmin && !ctx.isSupervisor) {
             const allowed = await canTeacherAccessSheet(client, ctx.employeeId, classId, sectionId, subjectId);
             if (!allowed) return res.status(403).json({ error: 'You are not assigned to this class/section/subject' });
         }
@@ -1498,7 +1695,8 @@ router.get('/tests/:test_id/sheet', async (req, res) => {
 
         const test = testRes.rows[0];
 
-        if (!ctx.isAdmin) {
+        // Allow if: Admin OR Supervisor (Coordinator/Head/VP) OR assigned teacher
+        if (!ctx.isAdmin && !ctx.isSupervisor) {
             const allowed = await canTeacherAccessSheet(client, ctx.employeeId, test.class_id, test.section_id, test.subject_id);
             if (!allowed) return res.status(403).json({ error: 'You are not assigned to this class/section/subject' });
         }
@@ -1536,7 +1734,7 @@ router.post('/tests/:test_id/save', async (req, res) => {
         await ensureTestTables();
         const userId = parseUserId(req.body.user_id);
         const testId = Number(req.params.test_id);
-        const marks  = Array.isArray(req.body.marks) ? req.body.marks : [];
+        const marks = Array.isArray(req.body.marks) ? req.body.marks : [];
 
         if (!userId || !testId) return res.status(400).json({ error: 'Valid user_id and test_id are required' });
         if (marks.length === 0) return res.status(400).json({ error: 'marks array is required' });
@@ -1549,7 +1747,8 @@ router.post('/tests/:test_id/save', async (req, res) => {
 
         const test = testRes.rows[0];
 
-        if (!ctx.isAdmin) {
+        // Allow if: Admin OR Supervisor (Coordinator/Head/VP) OR assigned teacher
+        if (!ctx.isAdmin && !ctx.isSupervisor) {
             const allowed = await canTeacherAccessSheet(client, ctx.employeeId, test.class_id, test.section_id, test.subject_id);
             if (!allowed) return res.status(403).json({ error: 'You are not assigned to this class/section/subject' });
 
@@ -1589,9 +1788,9 @@ router.post('/tests/:test_id/save', async (req, res) => {
 
         for (const row of marks) {
             const studentId = Number(row.student_id);
-            const obtained  = (row.obtained_marks !== null && row.obtained_marks !== '' && row.obtained_marks !== undefined)
+            const obtained = (row.obtained_marks !== null && row.obtained_marks !== '' && row.obtained_marks !== undefined)
                 ? Number(row.obtained_marks) : null;
-            const remarks   = String(row.remarks || '').trim() || null;
+            const remarks = String(row.remarks || '').trim() || null;
 
             await client.query(
                 `INSERT INTO test_marks (test_id, student_id, obtained_marks, remarks)
@@ -1626,7 +1825,7 @@ router.post('/tests/:test_id/save', async (req, res) => {
     }
 });
 
-// DELETE /tests/:test_id — admin only
+// DELETE /tests/:test_id admin only
 router.delete('/tests/:test_id', async (req, res) => {
     const client = await pool.connect();
     try {
@@ -1645,6 +1844,503 @@ router.delete('/tests/:test_id', async (req, res) => {
 
         res.json({ message: 'Test deleted successfully.' });
     } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: err.message });
+    } finally {
+        client.release();
+    }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MARKS APPROVAL & PUBLISHING WORKFLOW ENDPOINTS
+// ─────────────────────────────────────────────────────────────────────────────
+
+// GET /exams/approvals/list?user_id=
+router.get('/approvals/list', async (req, res) => {
+    const client = await pool.connect();
+    try {
+        await ensureTables();
+        await ensureTestTables();
+
+        const userId = parseUserId(req.query.user_id);
+        if (!userId) return res.status(400).json({ error: 'Valid user_id is required' });
+
+        const ctx = await getUserContext(client, userId);
+        if (ctx.error) return res.status(ctx.error.status).json({ error: ctx.error.message });
+
+        // 1. Term Exam Sheets
+        const termSheetsRes = await client.query(`
+            SELECT 
+                'term_exam' AS sheet_type,
+                em.term_id, t.term_name,
+                em.class_id, c.class_name,
+                em.section_id, sec.section_name,
+                em.subject_id, sub.subject_name,
+                NULL::int AS test_id,
+                CONCAT(t.term_name, ' - ', sub.subject_name) AS sheet_name,
+                COUNT(DISTINCT em.student_id)::int AS total_students,
+                COALESCE(esa.status, MAX(em.status), 'pending') AS status,
+                COALESCE(u_sub.full_name, u_sub.username, 'Teacher') AS submitted_by,
+                COALESCE(esa.submitted_at, MAX(em.created_at)) AS submitted_at,
+                u_app.full_name AS approved_by,
+                esa.approved_at,
+                u_pub.full_name AS published_by,
+                esa.published_at
+            FROM exam_marks em
+            JOIN classes c ON c.class_id = em.class_id
+            JOIN sections sec ON sec.section_id = em.section_id
+            JOIN subjects sub ON sub.subject_id = em.subject_id
+            JOIN academic_terms t ON t.id = em.term_id
+            LEFT JOIN exam_sheet_approvals esa 
+                ON esa.sheet_type = 'term_exam' 
+               AND esa.term_id = em.term_id 
+               AND esa.class_id = em.class_id 
+               AND esa.section_id = em.section_id 
+               AND esa.subject_id = em.subject_id
+            LEFT JOIN app_users u_sub ON u_sub.id = COALESCE(esa.submitted_by, em.entered_by_user_id)
+            LEFT JOIN app_users u_app ON u_app.id = esa.approved_by
+            LEFT JOIN app_users u_pub ON u_pub.id = esa.published_by
+            GROUP BY em.term_id, t.term_name, em.class_id, c.class_name, em.section_id, sec.section_name, em.subject_id, sub.subject_name, esa.status, esa.submitted_at, esa.approved_at, esa.published_at, u_sub.full_name, u_sub.username, u_app.full_name, u_pub.full_name
+            ORDER BY c.class_name ASC, sec.section_name ASC, t.term_name ASC, sub.subject_name ASC
+        `);
+
+        // 2. Class Test Sheets
+        const testSheetsRes = await client.query(`
+            SELECT
+                'class_test' AS sheet_type,
+                NULL::int AS term_id, NULL AS term_name,
+                tp.class_id, c.class_name,
+                tp.section_id, sec.section_name,
+                tp.subject_id, sub.subject_name,
+                tp.test_id,
+                tp.test_name AS sheet_name,
+                (SELECT COUNT(*)::int FROM test_marks tm WHERE tm.test_id = tp.test_id) AS total_students,
+                COALESCE(esa.status, tp.status, 'pending') AS status,
+                COALESCE(u_sub.full_name, u_sub.username, 'Teacher') AS submitted_by,
+                COALESCE(esa.submitted_at, tp.created_at) AS submitted_at,
+                COALESCE(u_app.full_name, 'Supervisor') AS approved_by,
+                esa.approved_at,
+                COALESCE(u_pub.full_name, 'Admin') AS published_by,
+                esa.published_at
+            FROM test_papers tp
+            JOIN classes c ON c.class_id = tp.class_id
+            JOIN sections sec ON sec.section_id = tp.section_id
+            JOIN subjects sub ON sub.subject_id = tp.subject_id
+            LEFT JOIN exam_sheet_approvals esa ON esa.sheet_type = 'class_test' AND esa.test_id = tp.test_id
+            LEFT JOIN app_users u_sub ON u_sub.id = COALESCE(esa.submitted_by, tp.created_by_user_id)
+            LEFT JOIN app_users u_app ON u_app.id = COALESCE(esa.approved_by, tp.approved_by)
+            LEFT JOIN app_users u_pub ON u_pub.id = COALESCE(esa.published_by, tp.published_by)
+            ORDER BY tp.created_at DESC
+        `);
+
+        const allSheets = [...termSheetsRes.rows, ...testSheetsRes.rows];
+        res.json({ sheets: allSheets, role_level: ctx.user.role_level, role_name: ctx.user.role_name });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: err.message });
+    } finally {
+        client.release();
+    }
+});
+
+// GET /exams/approvals/sheet-details?user_id=&sheet_type=&term_id=&class_id=&section_id=&subject_id=&test_id=
+router.get('/approvals/sheet-details', async (req, res) => {
+    const client = await pool.connect();
+    try {
+        await ensureTables();
+        await ensureTestTables();
+
+        const userId = parseUserId(req.query.user_id);
+        const { sheet_type, term_id, class_id, section_id, subject_id, test_id } = req.query;
+
+        if (!userId || !sheet_type) return res.status(400).json({ error: 'user_id and sheet_type are required' });
+
+        const ctx = await getUserContext(client, userId);
+        if (ctx.error) return res.status(ctx.error.status).json({ error: ctx.error.message });
+
+        if (sheet_type === 'term_exam') {
+            const termId = Number(term_id);
+            const classId = Number(class_id);
+            const sectionId = Number(section_id);
+            const subjectId = Number(subject_id);
+
+            const metaRes = await client.query(
+                `SELECT t.term_name, c.class_name, sec.section_name, sub.subject_name,
+                        esa.status, esa.submitted_at, esa.approved_at, esa.published_at,
+                        u_sub.full_name AS submitted_by, u_app.full_name AS approved_by, u_pub.full_name AS published_by
+                 FROM academic_terms t
+                 JOIN classes c ON c.class_id = $2
+                 JOIN sections sec ON sec.section_id = $3
+                 JOIN subjects sub ON sub.subject_id = $4
+                 LEFT JOIN exam_sheet_approvals esa 
+                    ON esa.sheet_type = 'term_exam' AND esa.term_id = $1 AND esa.class_id = $2 AND esa.section_id = $3 AND esa.subject_id = $4
+                 LEFT JOIN app_users u_sub ON u_sub.id = esa.submitted_by
+                 LEFT JOIN app_users u_app ON u_app.id = esa.approved_by
+                 LEFT JOIN app_users u_pub ON u_pub.id = esa.published_by
+                 WHERE t.id = $1`,
+                [termId, classId, sectionId, subjectId]
+            );
+
+            const studentsRes = await client.query(
+                `SELECT s.student_id, s.admission_no, s.roll_no,
+                        CONCAT(s.first_name, ' ', s.last_name) AS student_name,
+                        COALESCE(em.obtained_marks, 0) AS obtained_marks,
+                        COALESCE(em.total_marks, 100) AS total_marks,
+                        em.status AS mark_status
+                 FROM students s
+                 LEFT JOIN exam_marks em ON em.student_id = s.student_id AND em.term_id = $1 AND em.subject_id = $4
+                 WHERE s.class_id = $2 AND s.section_id = $3 AND LOWER(s.status) = 'active'
+                 ORDER BY s.roll_no ASC NULLS LAST, s.first_name ASC`,
+                [termId, classId, sectionId, subjectId]
+            );
+
+            const status = metaRes.rows[0]?.status || studentsRes.rows[0]?.mark_status || 'pending';
+            return res.json({
+                meta: { ...(metaRes.rows[0] || {}), status },
+                students: studentsRes.rows
+            });
+
+        } else if (sheet_type === 'class_test') {
+            const testId = Number(test_id);
+            const metaRes = await client.query(
+                `SELECT tp.test_id, tp.test_name, tp.total_marks, c.class_name, sec.section_name, sub.subject_name,
+                        COALESCE(esa.status, tp.status, 'pending') AS status,
+                        esa.submitted_at, esa.approved_at, esa.published_at,
+                        u_sub.full_name AS submitted_by, u_app.full_name AS approved_by, u_pub.full_name AS published_by
+                 FROM test_papers tp
+                 JOIN classes c ON c.class_id = tp.class_id
+                 JOIN sections sec ON sec.section_id = tp.section_id
+                 JOIN subjects sub ON sub.subject_id = tp.subject_id
+                 LEFT JOIN exam_sheet_approvals esa ON esa.sheet_type = 'class_test' AND esa.test_id = tp.test_id
+                 LEFT JOIN app_users u_sub ON u_sub.id = COALESCE(esa.submitted_by, tp.created_by_user_id)
+                 LEFT JOIN app_users u_app ON u_app.id = COALESCE(esa.approved_by, tp.approved_by)
+                 LEFT JOIN app_users u_pub ON u_pub.id = COALESCE(esa.published_by, tp.published_by)
+                 WHERE tp.test_id = $1`,
+                [testId]
+            );
+            if (metaRes.rows.length === 0) return res.status(404).json({ error: 'Test not found' });
+
+            const test = metaRes.rows[0];
+            const studentsRes = await client.query(
+                `SELECT s.student_id, s.admission_no, s.roll_no,
+                        CONCAT(s.first_name, ' ', s.last_name) AS student_name,
+                        COALESCE(tm.obtained_marks, 0) AS obtained_marks,
+                        $2::numeric AS total_marks, tm.remarks
+                 FROM students s
+                 LEFT JOIN test_marks tm ON tm.student_id = s.student_id AND tm.test_id = $1
+                 WHERE s.class_id = (SELECT class_id FROM test_papers WHERE test_id = $1)
+                   AND s.section_id = (SELECT section_id FROM test_papers WHERE test_id = $1)
+                   AND LOWER(s.status) = 'active'
+                 ORDER BY s.roll_no ASC NULLS LAST, s.first_name ASC`,
+                [testId, test.total_marks]
+            );
+
+            return res.json({
+                meta: test,
+                students: studentsRes.rows
+            });
+        }
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: err.message });
+    } finally {
+        client.release();
+    }
+});
+
+// POST /exams/approvals/update-marks
+router.post('/approvals/update-marks', async (req, res) => {
+    const client = await pool.connect();
+    try {
+        await ensureTables();
+        await ensureTestTables();
+
+        const { user_id, sheet_type, term_id, class_id, section_id, subject_id, test_id, marks } = req.body;
+        const userId = parseUserId(user_id);
+        if (!userId || !Array.isArray(marks)) return res.status(400).json({ error: 'Valid user_id and marks array are required' });
+
+        const ctx = await getUserContext(client, userId);
+        if (ctx.error) return res.status(ctx.error.status).json({ error: ctx.error.message });
+        if ((ctx.user.role_level || 0) < 65 && !ctx.isAdmin) {
+            return res.status(403).json({ error: 'Only Head Teachers, Coordinators, Vice Principals, Principals, or Administrators can adjust marks.' });
+        }
+
+        await client.query('BEGIN');
+
+        if (sheet_type === 'term_exam') {
+            const termId = Number(term_id);
+            const classId = Number(class_id);
+            const sectionId = Number(section_id);
+            const subjectId = Number(subject_id);
+
+            const yearRes = await getActiveAcademicYear(client);
+            const academicYearId = yearRes?.id || null;
+
+            for (const row of marks) {
+                const studentId = Number(row.student_id);
+                const obtained = Number(row.obtained_marks);
+                const totalMarks = Number(row.total_marks || 100);
+
+                await client.query(
+                    `INSERT INTO exam_marks (
+                        student_id, subject_id, term_id, academic_year_id,
+                        class_id, section_id, total_marks, obtained_marks,
+                        status, entered_by_user_id, updated_at
+                     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'pending',$9,NOW())
+                     ON CONFLICT (student_id, subject_id, term_id)
+                     DO UPDATE SET
+                        obtained_marks = EXCLUDED.obtained_marks,
+                        updated_at = NOW()`,
+                    [studentId, subjectId, termId, academicYearId, classId, sectionId, totalMarks, obtained, userId]
+                );
+            }
+        } else if (sheet_type === 'class_test') {
+            const testId = Number(test_id);
+            for (const row of marks) {
+                const studentId = Number(row.student_id);
+                const obtained = (row.obtained_marks !== null && row.obtained_marks !== '' && row.obtained_marks !== undefined)
+                    ? Number(row.obtained_marks) : null;
+                const remarks = row.remarks || null;
+
+                await client.query(
+                    `INSERT INTO test_marks (test_id, student_id, obtained_marks, remarks)
+                     VALUES ($1,$2,$3,$4)
+                     ON CONFLICT (test_id, student_id)
+                     DO UPDATE SET obtained_marks = EXCLUDED.obtained_marks, remarks = EXCLUDED.remarks`,
+                    [testId, studentId, obtained, remarks]
+                );
+            }
+        }
+
+        await client.query('COMMIT');
+        res.json({ message: 'Marks updated successfully' });
+    } catch (err) {
+        await client.query('ROLLBACK');
+        console.error(err);
+        res.status(500).json({ error: err.message });
+    } finally {
+        client.release();
+    }
+});
+
+// POST /exams/approvals/change-status
+router.post('/approvals/change-status', async (req, res) => {
+    const client = await pool.connect();
+    try {
+        await ensureTables();
+        await ensureTestTables();
+
+        const { user_id, sheet_type, term_id, class_id, section_id, subject_id, test_id, action } = req.body;
+        const userId = parseUserId(user_id);
+        if (!userId || !sheet_type || !action) return res.status(400).json({ error: 'user_id, sheet_type, and action are required' });
+
+        const ctx = await getUserContext(client, userId);
+        if (ctx.error) return res.status(ctx.error.status).json({ error: ctx.error.message });
+
+        const roleLevel = Number(ctx.user.role_level || 0);
+
+        // Permission enforcement:
+        // publish or unpublish: MUST BE Vice Principal, Principal, or Administrator (role_level >= 90 or Admin)
+        if (action === 'publish' || action === 'unpublish') {
+            if (roleLevel < 90 && !ctx.isAdmin) {
+                return res.status(403).json({ error: 'Only Vice Principal, Principal, or Administrator can publish or unpublish marks to Student Portal.' });
+            }
+        } else if (action === 'approve') {
+            if (roleLevel < 65 && !ctx.isAdmin) {
+                return res.status(403).json({ error: 'Only Head Teachers, Coordinators, Vice Principals, Principals, or Administrators can approve marks.' });
+            }
+        } else {
+            return res.status(400).json({ error: 'Invalid action. Must be approve, publish, or unpublish' });
+        }
+
+        const targetStatus = action === 'approve' ? 'approved' : action === 'publish' ? 'published' : 'pending';
+
+        await client.query('BEGIN');
+
+        if (sheet_type === 'term_exam') {
+            const termId = Number(term_id);
+            const classId = Number(class_id);
+            const sectionId = Number(section_id);
+            const subjectId = Number(subject_id);
+
+            if (!termId || !classId || !sectionId || !subjectId || isNaN(termId) || isNaN(classId) || isNaN(sectionId) || isNaN(subjectId)) {
+                await client.query('ROLLBACK');
+                return res.status(400).json({ error: 'Valid term_id, class_id, section_id, and subject_id are required for term_exam' });
+            }
+
+            // Update exam_marks table status for this sheet
+            await client.query(
+                `UPDATE exam_marks 
+                 SET status = $1, updated_at = NOW()
+                 WHERE term_id = $2 AND class_id = $3 AND section_id = $4 AND subject_id = $5`,
+                [targetStatus, termId, classId, sectionId, subjectId]
+            );
+
+            // Clean UPSERT into exam_sheet_approvals
+            const checkRes = await client.query(
+                `SELECT id FROM exam_sheet_approvals 
+                 WHERE sheet_type = 'term_exam' AND term_id = $1 AND class_id = $2 AND section_id = $3 AND subject_id = $4`,
+                [termId, classId, sectionId, subjectId]
+            );
+
+            const isApprovedOrPublished = targetStatus === 'approved' || targetStatus === 'published';
+            const isPublished = targetStatus === 'published';
+            const now = new Date();
+
+            if (checkRes.rows.length === 0) {
+                await client.query(
+                    `INSERT INTO exam_sheet_approvals (
+                        sheet_type, term_id, class_id, section_id, subject_id, status,
+                        submitted_by, approved_by, approved_at, published_by, published_at, updated_at
+                     ) VALUES ('term_exam', $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW())`,
+                    [
+                        termId, classId, sectionId, subjectId, targetStatus, userId,
+                        isApprovedOrPublished ? userId : null,
+                        isApprovedOrPublished ? now : null,
+                        isPublished ? userId : null,
+                        isPublished ? now : null
+                    ]
+                );
+            } else {
+                if (isPublished) {
+                    await client.query(
+                        `UPDATE exam_sheet_approvals
+                         SET status = $1,
+                             approved_by = COALESCE(approved_by, $2),
+                             approved_at = COALESCE(approved_at, NOW()),
+                             published_by = $2,
+                             published_at = NOW(),
+                             updated_at = NOW()
+                         WHERE sheet_type = 'term_exam' AND term_id = $3 AND class_id = $4 AND section_id = $5 AND subject_id = $6`,
+                        [targetStatus, userId, termId, classId, sectionId, subjectId]
+                    );
+                } else if (targetStatus === 'approved') {
+                    await client.query(
+                        `UPDATE exam_sheet_approvals
+                         SET status = $1,
+                             approved_by = COALESCE(approved_by, $2),
+                             approved_at = COALESCE(approved_at, NOW()),
+                             updated_at = NOW()
+                         WHERE sheet_type = 'term_exam' AND term_id = $3 AND class_id = $4 AND section_id = $5 AND subject_id = $6`,
+                        [targetStatus, userId, termId, classId, sectionId, subjectId]
+                    );
+                } else {
+                    await client.query(
+                        `UPDATE exam_sheet_approvals
+                         SET status = $1,
+                             published_by = NULL,
+                             published_at = NULL,
+                             updated_at = NOW()
+                         WHERE sheet_type = 'term_exam' AND term_id = $2 AND class_id = $3 AND section_id = $4 AND subject_id = $5`,
+                        [targetStatus, termId, classId, sectionId, subjectId]
+                    );
+                }
+            }
+        } else if (sheet_type === 'class_test') {
+            const testId = Number(test_id);
+            if (!testId || isNaN(testId)) {
+                await client.query('ROLLBACK');
+                return res.status(400).json({ error: 'Valid test_id is required for class_test' });
+            }
+
+            const isApprovedOrPublished = targetStatus === 'approved' || targetStatus === 'published';
+            const isPublished = targetStatus === 'published';
+            const now = new Date();
+
+            // Update test_papers table status
+            if (isPublished) {
+                await client.query(
+                    `UPDATE test_papers 
+                     SET status = $1,
+                         approved_by = COALESCE(approved_by, $2),
+                         published_by = $2
+                     WHERE test_id = $3`,
+                    [targetStatus, userId, testId]
+                );
+            } else if (targetStatus === 'approved') {
+                await client.query(
+                    `UPDATE test_papers 
+                     SET status = $1,
+                         approved_by = COALESCE(approved_by, $2)
+                     WHERE test_id = $3`,
+                    [targetStatus, userId, testId]
+                );
+            } else {
+                await client.query(
+                    `UPDATE test_papers 
+                     SET status = $1,
+                         published_by = NULL
+                     WHERE test_id = $2`,
+                    [targetStatus, testId]
+                );
+            }
+
+            const testRowRes = await client.query(`SELECT class_id, section_id, subject_id FROM test_papers WHERE test_id = $1`, [testId]);
+            const testRow = testRowRes.rows[0] || {};
+            const testClassId = Number(testRow.class_id || class_id || 0);
+            const testSectionId = Number(testRow.section_id || section_id || 0);
+            const testSubjectId = testRow.subject_id ? Number(testRow.subject_id) : (subject_id ? Number(subject_id) : null);
+
+            const checkRes = await client.query(
+                `SELECT id FROM exam_sheet_approvals WHERE sheet_type = 'class_test' AND test_id = $1`,
+                [testId]
+            );
+
+            if (checkRes.rows.length === 0) {
+                await client.query(
+                    `INSERT INTO exam_sheet_approvals (
+                        sheet_type, test_id, class_id, section_id, subject_id, status,
+                        submitted_by, approved_by, approved_at, published_by, published_at, updated_at
+                     ) VALUES ('class_test', $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW())`,
+                    [
+                        testId, testClassId, testSectionId, testSubjectId, targetStatus, userId,
+                        isApprovedOrPublished ? userId : null,
+                        isApprovedOrPublished ? now : null,
+                        isPublished ? userId : null,
+                        isPublished ? now : null
+                    ]
+                );
+            } else {
+                if (isPublished) {
+                    await client.query(
+                        `UPDATE exam_sheet_approvals
+                         SET status = $1,
+                             approved_by = COALESCE(approved_by, $2),
+                             approved_at = COALESCE(approved_at, NOW()),
+                             published_by = $2,
+                             published_at = NOW(),
+                             updated_at = NOW()
+                         WHERE sheet_type = 'class_test' AND test_id = $3`,
+                        [targetStatus, userId, testId]
+                    );
+                } else if (targetStatus === 'approved') {
+                    await client.query(
+                        `UPDATE exam_sheet_approvals
+                         SET status = $1,
+                             approved_by = COALESCE(approved_by, $2),
+                             approved_at = COALESCE(approved_at, NOW()),
+                             updated_at = NOW()
+                         WHERE sheet_type = 'class_test' AND test_id = $3`,
+                        [targetStatus, userId, testId]
+                    );
+                } else {
+                    await client.query(
+                        `UPDATE exam_sheet_approvals
+                         SET status = $1,
+                             published_by = NULL,
+                             published_at = NULL,
+                             updated_at = NOW()
+                         WHERE sheet_type = 'class_test' AND test_id = $2`,
+                        [targetStatus, testId]
+                    );
+                }
+            }
+        }
+
+        await client.query('COMMIT');
+        res.json({ message: `Sheet status successfully changed to ${targetStatus}` });
+    } catch (err) {
+        await client.query('ROLLBACK');
         console.error(err);
         res.status(500).json({ error: err.message });
     } finally {

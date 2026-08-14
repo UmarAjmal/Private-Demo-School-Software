@@ -71,6 +71,7 @@ const COL_DEFS: { key: string; label: string; defaultOn: boolean }[] = [
     { key: 'address', label: 'Address', defaultOn: false },
     { key: 'monthly_fee', label: 'Monthly Fee', defaultOn: false },
     { key: 'status', label: 'Status', defaultOn: true },
+    { key: 'remarks', label: 'Remarks / Notes (Blank)', defaultOn: false },
 ];
 
 // ── Plain-text value for exports ──────────────────────────────────────────
@@ -101,6 +102,7 @@ function exportText(key: string, s: Student, idx: number): string {
         case 'address': return [s.current_address, s.city].filter(Boolean).join(', ');
         case 'monthly_fee': return s.monthly_fee ?? '';
         case 'status': return s.status ?? '';
+        case 'remarks': return '';
         default: return '';
     }
 }
@@ -172,9 +174,15 @@ function renderCell(key: string, s: Student, idx: number) {
         case 'status':
             return (
                 <span className={`badge rounded-pill ${s.status === 'Active' ? 'bg-success' :
-                        s.status === 'Left' ? 'bg-danger' :
-                            'bg-secondary'
+                    s.status === 'Left' ? 'bg-danger' :
+                        'bg-secondary'
                     }`}>{s.status || 'Active'}</span>
+            );
+        case 'remarks':
+            return (
+                <div className="border-bottom border-secondary border-opacity-25" style={{ minWidth: 120, minHeight: 24, margin: '2px 0' }}>
+                    &nbsp;
+                </div>
             );
         default: return '—';
     }
@@ -182,7 +190,9 @@ function renderCell(key: string, s: Student, idx: number) {
 
 export default function StudentDetails() {
     const router = useRouter();
-    const { hasPermission } = useAuth();
+    const { hasPermission, user } = useAuth();
+
+    const isClassTeacher = user?.role_name?.toLowerCase() === 'teacher' && user?.incharge_class;
 
     // ── Data state ────────────────────────────────────────────────────────
     const [students, setStudents] = useState<Student[]>([]);
@@ -206,6 +216,19 @@ export default function StudentDetails() {
     });
 
     useEffect(() => {
+        if (isClassTeacher && user?.incharge_class) {
+            const classId = String(user.incharge_class.class_id);
+            const sectionId = String(user.incharge_class.section_id);
+            setFilters(prev => ({
+                ...prev,
+                class_id: classId,
+                section_id: sectionId
+            }));
+            fetchSections(classId);
+        }
+    }, [isClassTeacher, user]);
+
+    useEffect(() => {
         const init = async () => {
             await fetchClasses();
             fetchStudents();
@@ -217,6 +240,30 @@ export default function StudentDetails() {
         const t = setTimeout(() => { fetchStudents(); }, 300);
         return () => clearTimeout(t);
     }, [filters]);
+
+    // Automatically fetch sections whenever class_id filter changes
+    useEffect(() => {
+        if (filters.class_id) {
+            fetchSections(filters.class_id);
+        } else {
+            setSections([]);
+        }
+    }, [filters.class_id]);
+
+    // Reset filters helper respecting class teacher permissions
+    const resetFilters = () => {
+        if (isClassTeacher && user?.incharge_class) {
+            setFilters({
+                class_id: String(user.incharge_class.class_id),
+                section_id: String(user.incharge_class.section_id),
+                gender: '', status: '', category: '', blood_group: '', religion: '', age: '', keyword: '', family_id: ''
+            });
+        } else {
+            setFilters({
+                class_id: '', section_id: '', gender: '', status: '', category: '', blood_group: '', religion: '', age: '', keyword: '', family_id: ''
+            });
+        }
+    };
 
     // Close column picker when clicking outside
     useEffect(() => {
@@ -232,14 +279,14 @@ export default function StudentDetails() {
 
     const fetchClasses = async () => {
         try {
-            const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "https://shmool.onrender.com"}` + '/academic');
+            const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "https://shmool.onrender.com"}/academic`);
             if (res.ok) setClasses(await res.json());
         } catch (e) { console.error(e); }
     };
 
     const fetchSections = async (classId: string) => {
         try {
-            const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "https://shmool.onrender.com"}` + '/academic/sections');
+            const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "https://shmool.onrender.com"}/academic/sections`);
             if (res.ok) {
                 const allSections = await res.json();
                 setSections(allSections.filter((s: any) => s.class_id === Number(classId)));
@@ -252,7 +299,7 @@ export default function StudentDetails() {
         try {
             const queryParams = new URLSearchParams();
             Object.entries(filters).forEach(([key, value]) => {
-                if (value) queryParams.append(key, value);
+                if (value) queryParams.append(key, value.trim());
             });
             const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "https://shmool.onrender.com"}/students?${queryParams.toString()}`);
             if (res.ok) {
@@ -328,24 +375,69 @@ export default function StudentDetails() {
         URL.revokeObjectURL(url);
     };
 
+    const [school, setSchool] = useState<any>(null);
+
+    useEffect(() => {
+        const API = (process.env.NEXT_PUBLIC_API_URL || "https://shmool.onrender.com").replace(/\/+$/, '');
+        fetch(`${API}/settings`)
+            .then(r => r.json())
+            .then(data => {
+                if (data && typeof data === 'object' && !Array.isArray(data)) {
+                    const getLogo = (raw?: string) => {
+                        if (!raw || !raw.trim()) return `${API}/icon.png`;
+                        const s = raw.trim();
+                        if (s.startsWith('data:') || s.startsWith('http://') || s.startsWith('https://')) return s;
+                        return `${API}/${s.replace(/^\/+/, '')}`;
+                    };
+                    setSchool({
+                        school_name: data.school_name || 'Falcon School System',
+                        address: data.address || '',
+                        contact_number: data.contact_number || '',
+                        logo_url: getLogo(data.logo_url)
+                    });
+                }
+            })
+            .catch(() => { });
+    }, []);
+
     const doExportPDF = () => {
         const { headers, rows } = buildExportData();
         const win = window.open('', '_blank');
-        if (!win) { notify.error('Popup blocked — allow popups to export PDF.'); return; }
+        if (!win) { notify.error('Popup blocked allow popups to export PDF.'); return; }
         const ths = headers.map(h => `<th>${h}</th>`).join('');
-        const trs = rows.map(r => '<tr>' + r.map(v => `<td>${v}</td>`).join('') + '</tr>').join('');
+        const trs = rows.map(r => '<tr>' + r.map((v, i) => {
+            const isRemarks = headers[i]?.toLowerCase().includes('remarks') || headers[i]?.toLowerCase().includes('notes');
+            return isRemarks ? `<td style="border-bottom:1px dashed #777;min-width:120px">&nbsp;</td>` : `<td>${v}</td>`;
+        }).join('') + '</tr>').join('');
+
+        const logoUrl = school?.logo_url || `${(process.env.NEXT_PUBLIC_API_URL || "https://shmool.onrender.com").replace(/\/+$/, '')}/icon.png`;
+        const schoolName = school?.school_name || 'Falcon School System';
+        const address = school?.address || '';
+        const contact = school?.contact_number || '';
+
         win.document.write(
-            `<!DOCTYPE html><html><head><meta charset="utf-8"/><title>Students</title>` +
+            `<!DOCTYPE html><html><head><meta charset="utf-8"/><title>Student Directory</title>` +
             `<style>body{font-family:Arial,sans-serif;font-size:11px;margin:20px}` +
-            `h2{text-align:center;font-size:16px;margin-bottom:4px}` +
-            `p.sub{text-align:center;color:#666;font-size:10px;margin-bottom:12px}` +
-            `table{width:100%;border-collapse:collapse}` +
+            `.header-container{display:flex;align-items:center;justify-content:center;gap:15px;margin-bottom:15px;border-bottom:2px solid #1a3a5c;padding-bottom:10px}` +
+            `.header-logo{height:65px;width:65px;object-fit:contain}` +
+            `.header-text{text-align:center}` +
+            `h2{text-align:center;font-size:18px;margin:0;color:#1a3a5c;font-weight:bold}` +
+            `p.sub{text-align:center;color:#555;font-size:11px;margin:2px 0}` +
+            `h3.title{text-align:center;font-size:14px;margin:4px 0 0 0;color:#333;text-transform:uppercase;letter-spacing:0.5px}` +
+            `table{width:100%;border-collapse:collapse;margin-top:10px}` +
             `th{background:#1a3a5c;color:#fff;padding:6px 8px;font-size:10px;text-align:left}` +
             `td{padding:5px 8px;border-bottom:1px solid #e0e0e0;font-size:11px}` +
             `tr:nth-child(even) td{background:#f7f9fc}` +
             `@media print{@page{margin:10mm}}</style></head><body>` +
-            `<h2>Student Directory</h2>` +
-            `<p class="sub">Generated: ${new Date().toLocaleDateString()} — Total: ${students.length}</p>` +
+            `<div class="header-container">` +
+            `<img src="${logoUrl}" class="header-logo" alt="Logo" />` +
+            `<div class="header-text">` +
+            `<h2>${schoolName}</h2>` +
+            `${address ? `<p class="sub">${address}</p>` : ''}` +
+            `${contact ? `<p class="sub">Contact: ${contact}</p>` : ''}` +
+            `<h3 class="title">Student Directory (${students.length} Students)</h3>` +
+            `</div>` +
+            `</div>` +
             `<table><thead><tr>${ths}</tr></thead><tbody>${trs}</tbody></table></body></html>`
         );
         win.document.close(); win.focus();
@@ -386,17 +478,22 @@ export default function StudentDetails() {
                 </div>
                 <div className="card-body p-4 bg-light">
                     <form onSubmit={(e) => e.preventDefault()}>
-                        {/* Row 1 — primary search */}
+                        {/* Row 1 primary search */}
                         <div className="row g-3 mb-3">
                             <div className="col-md-3">
                                 <div className="input-group">
                                     <span className="input-group-text bg-white border-end-0"><i className="bi bi-search text-muted"></i></span>
                                     <input type="text" className="form-control border-start-0 ps-0" placeholder="Name / Roll / Adm No..."
                                         value={filters.keyword} onChange={e => setFilters({ ...filters, keyword: e.target.value })} />
+                                    {filters.keyword && (
+                                        <button className="btn btn-outline-secondary border border-start-0" type="button" onClick={() => setFilters({ ...filters, keyword: '' })}>
+                                            <i className="bi bi-x"></i>
+                                        </button>
+                                    )}
                                 </div>
                             </div>
                             <div className="col-md-3">
-                                <select className="form-select" value={filters.class_id} onChange={handleClassChange}>
+                                <select className="form-select" value={filters.class_id} onChange={handleClassChange} disabled={!!isClassTeacher}>
                                     <option value="">All Classes</option>
                                     {classes.map((c: any) => <option key={c.class_id} value={c.class_id}>{c.class_name}</option>)}
                                 </select>
@@ -404,7 +501,7 @@ export default function StudentDetails() {
                             <div className="col-md-3">
                                 <select className="form-select" value={filters.section_id}
                                     onChange={e => setFilters({ ...filters, section_id: e.target.value })}
-                                    disabled={!filters.class_id}>
+                                    disabled={!filters.class_id || !!isClassTeacher}>
                                     <option value="">All Sections</option>
                                     {sections.map((s: any) => <option key={s.section_id} value={s.section_id}>{s.section_name}</option>)}
                                 </select>
@@ -414,11 +511,16 @@ export default function StudentDetails() {
                                     <span className="input-group-text bg-white border-end-0"><i className="bi bi-people-fill text-muted"></i></span>
                                     <input type="text" className="form-control border-start-0 ps-0" placeholder="Family ID..."
                                         value={filters.family_id} onChange={e => setFilters({ ...filters, family_id: e.target.value })} />
+                                    {filters.family_id && (
+                                        <button className="btn btn-outline-secondary border border-start-0" type="button" onClick={() => setFilters({ ...filters, family_id: '' })}>
+                                            <i className="bi bi-x"></i>
+                                        </button>
+                                    )}
                                 </div>
                             </div>
                         </div>
 
-                        {/* Row 2 — advanced filters */}
+                        {/* Row 2 advanced filters */}
                         {showAdvancedFilters && (
                             <div className="row g-3 animate__animated animate__fadeIn">
                                 <div className="col-md-2">
@@ -470,11 +572,12 @@ export default function StudentDetails() {
                                 <div className="col-md-2">
                                     <label className="form-label small text-muted text-uppercase fw-bold">Age (Years)</label>
                                     <input type="number" className="form-control form-control-sm" placeholder="e.g. 15"
+                                        onKeyDown={e => ['e', 'E', '+', '-', '.'].includes(e.key) && e.preventDefault()}
                                         value={filters.age} onChange={e => setFilters({ ...filters, age: e.target.value })} />
                                 </div>
                                 <div className="col-12 text-end">
                                     <button type="button" className="btn btn-link text-muted text-decoration-none btn-sm"
-                                        onClick={() => setFilters({ class_id: '', section_id: '', gender: '', status: '', category: '', blood_group: '', religion: '', age: '', keyword: '', family_id: '' })}>
+                                        onClick={resetFilters}>
                                         <i className="bi bi-x-circle me-1"></i> Clear All Filters
                                     </button>
                                 </div>
@@ -504,6 +607,16 @@ export default function StudentDetails() {
                                 </button>
                                 <button className="btn btn-sm btn-outline-secondary" onClick={doExportCSV} title="Export CSV">
                                     <i className="bi bi-filetype-csv"></i>
+                                </button>
+                                {/* Quick Blank Column Toggle */}
+                                <button
+                                    className={`btn btn-sm d-flex align-items-center gap-1 ${visibleCols.has('remarks') ? 'btn-primary' : 'btn-outline-primary'}`}
+                                    onClick={() => toggleCol('remarks')}
+                                    title="Toggle Blank Remarks Column for Hand Writing when Printing"
+                                    style={{ borderRadius: 6, fontWeight: 500, fontSize: 12 }}
+                                >
+                                    <i className={`bi ${visibleCols.has('remarks') ? 'bi-pencil-square' : 'bi-journal-plus'}`}></i>
+                                    <span>{visibleCols.has('remarks') ? 'Blank Column ON' : '+ Blank Column'}</span>
                                 </button>
                                 <div className="vr" style={{ height: 24 }}></div>
                                 {/* Column picker */}
@@ -606,7 +719,7 @@ export default function StudentDetails() {
                                                             {renderCell(col.key, s, idx)}
                                                         </td>
                                                     ))}
-                                                    {/* ACTION BUTTONS — temporarily hidden */}
+                                                    {/* ACTION BUTTONS temporarily hidden */}
                                                     {false && (
                                                         <td className="text-end pe-4" onClick={e => e.stopPropagation()}>
                                                             <button

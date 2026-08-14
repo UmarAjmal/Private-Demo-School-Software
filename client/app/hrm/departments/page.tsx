@@ -28,7 +28,7 @@ export default function DepartmentsPage() {
 
     const fetchDepartments = async () => {
         try {
-            const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "https://shmool.onrender.com"}` + '/hrm/departments');
+            const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "https://shmool.onrender.com"}/hrm/departments`);
             if (res.ok) setDepartments(await res.json());
         } catch (err) { console.error(err); }
         finally { setLoading(false); }
@@ -37,7 +37,7 @@ export default function DepartmentsPage() {
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         try {
-            const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "https://shmool.onrender.com"}` + '/hrm/departments', {
+            const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "https://shmool.onrender.com"}/hrm/departments`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(formData)

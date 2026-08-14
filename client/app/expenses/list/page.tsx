@@ -68,7 +68,7 @@ export default function ExpenseListPage() {
 
     const fetchCategories = async () => {
         try {
-            const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "https://shmool.onrender.com"}` + '/expense-categories/active');
+            const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "https://shmool.onrender.com"}/expense-categories/active`);
             const data = await response.json();
             setCategories(data);
         } catch (err) {

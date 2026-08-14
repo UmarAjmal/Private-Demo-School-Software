@@ -3,7 +3,9 @@ import { useState, useEffect, useRef } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { notify } from '@/app/utils/notify';
 
-const API = `${process.env.NEXT_PUBLIC_API_URL || "https://shmool.onrender.com"}`;
+const API = process.env.NEXT_PUBLIC_API_URL || "https://shmool.onrender.com";
+
+
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 
 interface SlipRow {
@@ -97,17 +99,46 @@ export default function CollectFeePage() {
         // School info lives in school_settings table (via /settings), NOT system_settings
         fetch(`${API}/settings`).then(r => r.json()).then((data: any) => {
             if (data && typeof data === 'object' && !Array.isArray(data)) {
+                const getLogo = (raw?: string) => {
+                    const API_URL = (process.env.NEXT_PUBLIC_API_URL || "https://shmool.onrender.com").replace(/\/+$/, '');
+                    if (!raw || !raw.trim()) return `${API_URL}/icon.png`;
+                    const s = raw.trim();
+                    if (s.startsWith('data:') || s.startsWith('http://') || s.startsWith('https://')) return s;
+                    return `${API_URL}/${s.replace(/^\/+/, '')}`;
+                };
                 setSchool({
                     school_name: data.school_name || '',
                     school_address: data.address || '',
                     phone_number: data.contact_number || '',
                     school_phone2: '',
                     school_phone3: '',
-                    // logo_url is a relative path like /uploads/school_logo.png — prefix API host
-                    school_logo_url: data.logo_url ? `${API}${data.logo_url}` : ''
+                    school_logo_url: getLogo(data.logo_url)
                 });
             }
         }).catch(() => { });
+
+        // Auto load slips if URL search parameter is provided
+        if (typeof window !== 'undefined') {
+            const urlParams = new URLSearchParams(window.location.search);
+            const querySearch = urlParams.get('search') || urlParams.get('student') || urlParams.get('family_id') || urlParams.get('student_id');
+            if (querySearch) {
+                setSearch(querySearch);
+                // Trigger slips load automatically
+                const currentYear = new Date().getFullYear().toString();
+                setLoading(true);
+                fetch(`${API}/fee-slips?year=${currentYear}`)
+                    .then(r => r.json())
+                    .then(data => {
+                        if (data && data.slips) {
+                            setSlips((data.slips || []).map((s: any) => s.category && s.category.trim().toLowerCase() === 'trusted' ? { ...s, status: 'satteled' } : s));
+                            setStats(data.stats || null);
+                            setLoaded(true);
+                        }
+                    })
+                    .catch(() => { })
+                    .finally(() => setLoading(false));
+            }
+        }
     }, []);
 
     const loadSlips = async () => {
@@ -129,7 +160,7 @@ export default function CollectFeePage() {
         finally { setLoading(false); }
     };
 
-    // Silent reload — re-fetches all slips in the background without clearing UI or spinner.
+    // Silent reload re-fetches all slips in the background without clearing UI or spinner.
     // Called after payment/reversal so waterfall-updated old slips also reflect their new state.
     const silentReload = async () => {
         if (!year) return;
@@ -147,30 +178,44 @@ export default function CollectFeePage() {
 
     const openPayModal = async (slip: SlipRow) => {
         setActiveSlip(slip);
-        const initialHeads: Record<string, string> = {};
-        if (slip.line_items && slip.line_items.length > 0) {
-            slip.line_items.forEach((item: any) => {
-                const headId = item.item_id.toString(); // Map correctly to table row ID
-                const rem = parseFloat(item.amount as any || 0) - parseFloat(item.paid_amount as any || 0);
-                initialHeads[headId] = rem > 0 ? rem.toString() : '';
-            });
-        } else {
-            const balance = parseFloat(slip.total_amount as any) - parseFloat(slip.paid_amount as any);
-            initialHeads['fallback'] = balance > 0 ? balance.toString() : '';
-        }
-        setHeadPayVals(initialHeads);
+        const buildInitialHeads = (targetSlip: SlipRow) => {
+            const initialHeads: Record<string, string> = {};
+            if (targetSlip.line_items && targetSlip.line_items.length > 0) {
+                targetSlip.line_items.forEach((item: any) => {
+                    const headId = item.item_id ? item.item_id.toString() : item.head_name;
+                    const rem = Math.max(0, parseFloat(item.amount as any || 0) - parseFloat(item.paid_amount as any || 0));
+                    initialHeads[headId] = rem > 0 ? rem.toString() : '';
+                });
+            } else {
+                const balance = Math.max(0, parseFloat(targetSlip.total_amount as any) - parseFloat(targetSlip.paid_amount as any));
+                initialHeads['fallback'] = balance > 0 ? balance.toString() : '';
+            }
+            return initialHeads;
+        };
+
+        setHeadPayVals(buildInitialHeads(slip));
         setPayMethod('cash'); setPayDate(new Date().toISOString().split('T')[0]);
         setReceivedBy(''); setRefNo(''); setNotes('');
         setPayModal(true);
         setLoadingHistory(true); setSlipPayments([]);
         try {
             const r = await fetch(`${API}/fee-slips/${slip.slip_id}`);
-            const d = await r.json(); setSlipPayments(d.payments || []);
+            const d = await r.json();
+            setSlipPayments(d.payments || []);
+            if (d.slip) {
+                setActiveSlip(d.slip);
+                if (d.slip.line_items && d.slip.line_items.length > 0) {
+                    setHeadPayVals(buildInitialHeads(d.slip));
+                }
+            }
         } catch { setSlipPayments([]); }
         finally { setLoadingHistory(false); }
     };
 
-    const openReceiptWindow = (
+    /* ============================================================================
+       PREVIOUS OPEN RECEIPT WINDOW (PRESERVED IN COMMENTS)
+       ============================================================================
+    const oldOpenReceiptWindow = (
         slip: SlipRow,
         receivingAmt: number,
         submissionDate: string,
@@ -271,6 +316,239 @@ export default function CollectFeePage() {
             setTimeout(() => w.print(), 250);
         }
     };
+       ============================================================================ */
+
+    /* ============================================================================
+       NEW THERMAL FEE RECEIPT (Strictly matching fee-voucher thermal printer.html)
+       ============================================================================ */
+    const openReceiptWindow = (
+        slip: SlipRow,
+        receivingAmt: number,
+        submissionDate: string,
+        prevPaid: number
+    ) => {
+        const escStr = (text: unknown): string => {
+            return String(text ?? '')
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+        };
+
+        const totalPayable = parseFloat(slip.total_amount as any) || 0;
+        const totalReceivedBefore = prevPaid || 0;
+        const totalReceivedNow = totalReceivedBefore + receivingAmt;
+        const remainingBalance = Math.max(0, totalPayable - totalReceivedNow);
+
+        const fmtMoney = (n: number) => `${Number(n || 0).toLocaleString('en-PK')}/-`;
+        const fmtD = (d: string | null) => {
+            if (!d) return '\u2014';
+            try {
+                const dt = new Date(d);
+                return ("0" + dt.getDate()).slice(-2) + "-" + ("0" + (dt.getMonth() + 1)).slice(-2) + "-" + dt.getFullYear();
+            } catch {
+                return String(d);
+            }
+        };
+        const zeroPad = (n: number) => String(n).padStart(5, '0');
+
+        // Students list: exactly 1 row per student, no blank filler rows
+        const members: any[] = (slip.family_members && slip.family_members.length > 0)
+            ? slip.family_members
+            : [{
+                first_name: slip.first_name,
+                last_name: slip.last_name,
+                father_name: slip.father_name || '',
+                class_name: slip.class_name,
+                section_name: slip.section_name
+            }];
+
+        const studentRows = members.map(m =>
+            `<tr>
+                <td>${escStr(m.first_name || '')} ${escStr(m.last_name || '')}</td>
+                <td>${escStr(m.father_name || slip.father_name || '')}</td>
+                <td>${escStr(m.class_name || '')}${m.section_name ? ` (${escStr(m.section_name)})` : ''}</td>
+            </tr>`
+        ).join('');
+
+        // Fee Details: 1 row per fee head with Sr.#
+        const lineItems = slip.line_items || [];
+        let srNo = 0;
+        let feeRows = '';
+
+        lineItems.forEach(li => {
+            srNo++;
+            const desc = li.head_name.replace('Family Monthly Fee', 'Monthly Fee') + (li.note ? ` (${li.note})` : '');
+            feeRows += `<tr>
+                <td>${srNo}</td>
+                <td>${escStr(desc)}</td>
+                <td>${fmtMoney(parseFloat(li.amount as any) || 0)}</td>
+            </tr>`;
+        });
+
+        if (lineItems.length === 0) {
+            srNo++;
+            feeRows += `<tr>
+                <td>${srNo}</td>
+                <td>Monthly Fee</td>
+                <td>${fmtMoney(totalPayable)}</td>
+            </tr>`;
+        }
+
+        // Subtotal row
+        srNo++;
+        feeRows += `<tr class="subtotal-row">
+            <td>${srNo}</td>
+            <td>Total Payable</td>
+            <td>${fmtMoney(totalPayable)}</td>
+        </tr>`;
+
+        // Receiving Amount & Remaining Balance
+        feeRows += `
+            <tr class="divider-row">
+                <td colspan="2">Receiving Amount</td>
+                <td>${fmtMoney(receivingAmt)}</td>
+            </tr>
+            <tr class="bold-row">
+                <td colspan="2">Remaining Balance</td>
+                <td>${fmtMoney(remainingBalance)}</td>
+            </tr>`;
+
+        const phones = [school.phone_number, school.school_phone2, school.school_phone3].filter(Boolean).join(' ; ') || '0300-7730141 ; 0308-7696430 ; 067-3366383';
+        const API_URL = (process.env.NEXT_PUBLIC_API_URL || "https://shmool.onrender.com").replace(/\/+$/, '');
+        const logoUrl = school.school_logo_url || `${API_URL}/icon.png`;
+        const schoolNameFormatted = (school.school_name || 'Falcon School System\nVehari').split('\n').join('<br>');
+        const schoolAddress = school.school_address || '83/M Madina Colony Vehari';
+
+        const logoImgHtml = logoUrl
+            ? `<img src="${escStr(logoUrl)}" alt="Logo" style="width:100%;height:100%;object-fit:contain;border-radius:1.5mm;display:block;" />`
+            : '';
+
+        const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Fee Receipt</title>
+<style>
+  @page { margin: 0; size: auto; }
+  html, body {
+    margin: 0; padding: 0; width: 72mm; box-sizing: border-box;
+    font-family: 'Times New Roman', Times, serif; color: #000; background: #fff;
+  }
+  .voucher {
+    width: 100%; padding: 3mm; display: flex; flex-direction: column; box-sizing: border-box;
+    border: 2px solid #000; border-radius: 4mm; position: relative; background: #fff;
+  }
+  .voucher::before {
+    content: ""; position: absolute; inset: 2px; border: 1px solid #000; border-radius: 3.3mm; pointer-events: none;
+  }
+
+  .header { display: flex; align-items: center; gap: 2mm; margin-bottom: 2mm; }
+  .logo-box {
+    width: 16mm; height: 16mm; border: none; background: transparent;
+    flex-shrink: 0; display: flex; align-items: center; justify-content: center; overflow: hidden;
+  }
+  .school-name { font-size: 11pt; font-weight: bold; line-height: 1.25; text-transform: uppercase; color: #000; }
+
+  .address-block { text-align: center; font-size: 8pt; margin-bottom: 1mm; line-height: 1.3; color: #000; }
+  .address-block p { margin: 0; }
+  hr { border: 0; border-top: 1px dashed #000; margin: 1.5mm 0; }
+  .voucher-title { text-align: center; font-size: 10.5pt; font-weight: bold; text-transform: uppercase; margin: 1mm 0; color: #000; }
+
+  .info { font-size: 8pt; margin-bottom: 2mm; line-height: 1.4; color: #000; }
+  .info-row { display: flex; align-items: baseline; gap: 2mm; white-space: nowrap; margin-bottom: 0.5mm; }
+  .info-row .voucher-no { flex-shrink: 0; }
+  .info-row .family-id { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; text-align: right; }
+  .info-row2 { margin-bottom: 0.5mm; }
+
+  .section-label { font-size: 9.5pt; font-weight: bold; margin: 3mm 0 1mm; color: #000; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 8pt; margin-bottom: 3mm; table-layout: fixed; word-wrap: break-word; color: #000; }
+  th, td { border: 1px solid #000; padding: 1.2mm 0.8mm; text-align: center; }
+  th { font-weight: bold; background: #e9e9e9; }
+
+  .students th:nth-child(1), .students td:nth-child(1) { text-align: left; }
+  .students th:nth-child(2), .students td:nth-child(2) { text-align: left; }
+
+  .details th:nth-child(1), .details td:nth-child(1) { width: 12%; }
+  .details th:nth-child(2), .details td:nth-child(2) { text-align: left; }
+  .details th:nth-child(3), .details td:nth-child(3) { text-align: right; }
+  .details tr.subtotal-row td { font-weight: bold; background: #e9e9e9; }
+  .details tr.divider-row td { font-weight: bold; border-top: 2px solid #000; }
+  .details tr.bold-row td { font-weight: bold; }
+  .details tr.divider-row td:first-child,
+  .details tr.bold-row td:first-child { text-align: left; }
+
+  .thank-you { text-align: center; font-size: 9.5pt; font-weight: bold; margin-top: 3mm; margin-bottom: 2mm; color: #000; }
+  .spacer { flex-grow: 1; }
+
+  .print-btn {
+    display: block; width: 100%; margin-top: 4mm; padding: 8px; font-size: 10pt; font-weight: bold;
+    background: #215E61; color: #fff; border: none; border-radius: 4px; cursor: pointer; text-align: center;
+  }
+  @media print {
+    .print-btn { display: none !important; }
+    body { width: 72mm !important; }
+  }
+</style>
+</head>
+<body>
+  <div class="voucher">
+    <div class="header">
+      <div class="logo-box">${logoImgHtml}</div>
+      <div class="school-name">${schoolNameFormatted}</div>
+    </div>
+    <div class="address-block">
+      <p>${escStr(schoolAddress)}</p>
+      <p>${escStr(phones)}</p>
+    </div>
+    <hr><div class="voucher-title">Fee Receipt</div><hr>
+    <div class="info">
+      <div class="info-row">
+        <div class="voucher-no">Voucher No: <strong><u>${zeroPad(slip.slip_id)}</u></strong></div>
+        <div class="family-id">Family ID: <strong><u>${escStr(slip.family_id || '—')}</u></strong></div>
+      </div>
+      <div class="info-row2">Fee Submission Date: <strong><u>${fmtD(submissionDate)}</u></strong></div>
+    </div>
+
+    <div class="section-label">Students Details</div>
+    <table class="students">
+      <thead><tr><th>Student Name</th><th>Father Name</th><th>Class (Sec)</th></tr></thead>
+      <tbody>${studentRows}</tbody>
+    </table>
+
+    <div class="section-label">Fee Details</div>
+    <table class="details">
+      <thead><tr><th>Sr.#</th><th>Fee Description</th><th>Amount</th></tr></thead>
+      <tbody>${feeRows}</tbody>
+    </table>
+
+    <div class="thank-you">Thank You</div>
+    <div class="spacer"></div>
+  </div>
+  <button class="print-btn" onclick="window.print()">🖨️ Print Receipt</button>
+  <script>
+    window.onload = function() {
+      var img = document.querySelector('.logo-box img');
+      if (img && !img.complete) {
+        img.onload = function() { window.print(); };
+        img.onerror = function() { window.print(); };
+      } else {
+        window.print();
+      }
+    };
+  </script>
+</body>
+</html>`;
+
+        const w = window.open('', '_blank', 'width=420,height=680,toolbar=0,menubar=0,scrollbars=1');
+        if (w) {
+            w.document.write(html);
+            w.document.close();
+            w.focus();
+        }
+    };
 
     const deletePayment = async (paymentId: number) => {
         if (!window.confirm('Reverse this payment? The collection will be removed and slip balance recalculated.')) return;
@@ -287,7 +565,7 @@ export default function CollectFeePage() {
             setSlips(prev => prev.map(s => s.slip_id === activeSlip!.slip_id
                 ? { ...s, paid_amount: d.slip.paid_amount, status: d.slip.status } : s));
             setActiveSlip(prev => prev ? { ...prev, paid_amount: d.slip.paid_amount, status: d.slip.status } : null);
-            // Re-fetch all slips silently — OPB reversal may have updated older slips in DB
+            // Re-fetch all slips silently OPB reversal may have updated older slips in DB
             silentReload();
         } catch (e: any) { alert('Error: ' + e.message); }
         finally { setDeletingPaymentId(null); }
@@ -326,7 +604,7 @@ export default function CollectFeePage() {
             setHeadPayVals({});
             // Open receipt in new window after successful payment
             if (shouldPrint) openReceiptWindow(slipSnap, receivingSnap, payDateSnap, prevPaidSnap);
-            // Re-fetch all slips silently — waterfall may have updated older slips in DB
+            // Re-fetch all slips silently waterfall may have updated older slips in DB
             silentReload();
         } catch (e: any) { notify.error(e.message); }
         finally { setPaying(false); }
@@ -348,9 +626,9 @@ export default function CollectFeePage() {
         return true;
     });
 
-    // Group filtered slips by student/family — one row per student
+    // Group filtered slips by student/family one row per student
     // NOTE: Each slip already embeds previous months' unpaid balance as "Previous Balance" line item.
-    //       So we NEVER sum across slips — we only look at the LATEST slip per student.
+    //       So we NEVER sum across slips we only look at the LATEST slip per student.
     const groupedFiltered = (() => {
         const map = new Map<string, {
             key: string; student_id: number; first_name: string; last_name: string;
@@ -358,7 +636,7 @@ export default function CollectFeePage() {
             class_name: string; section_name?: string; family_id: string | null; is_family_slip: boolean;
             family_members?: any[];
             latest_slip: SlipRow;      // the most recent slip (highest year then month)
-            latest_unpaid: SlipRow;    // most recent unpaid/partial slip — collect THIS one
+            latest_unpaid: SlipRow;    // most recent unpaid/partial slip collect THIS one
             latest_paid: SlipRow | null;  // most recent slip with paid_amount > 0 (for Reverse)
             has_payments: boolean;     // any slip in this group has been paid at least partially
             balance: number;           // balance from latest_unpaid only
@@ -436,7 +714,7 @@ export default function CollectFeePage() {
                     </h6>
                 </div>
                 <div className="card-body p-4">
-                    {/* Row 1: Search bar — always visible */}
+                    {/* Row 1: Search bar always visible */}
                     <div className="mb-3">
                         <div className="input-group">
                             <span className="input-group-text bg-white">
@@ -474,7 +752,7 @@ export default function CollectFeePage() {
                             <label className="form-label fw-bold small text-muted">
                                 <i className="bi bi-calendar3 me-1"></i>Year <span className="text-danger">*</span>
                             </label>
-                            <input type="number" className="form-control" value={year} onChange={e => setYear(e.target.value)} />
+                            <input type="number" className="form-control" value={year} onKeyDown={e => ['e', 'E', '+', '-', '.'].includes(e.key) && e.preventDefault()} onChange={e => setYear(e.target.value)} />
                         </div>
                         <div className="col-md-3">
                             <label className="form-label fw-bold small text-muted">
@@ -847,7 +1125,7 @@ export default function CollectFeePage() {
                                     )} 
                                     */}
 
-                                    {/* Payment history — always visible so Delete button is always accessible */}
+                                    {/* Payment history always visible so Delete button is always accessible */}
                                     <div className="mb-3">
                                         <div style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--primary-dark)', marginBottom: 4 }}>
                                             <i className="bi bi-clock-history me-1"></i>Payment History
@@ -962,14 +1240,26 @@ export default function CollectFeePage() {
                                             <div className="row g-2 mt-2">
                                                 <div className="col-12 w-100 mb-2">
                                                     <label className="form-label small fw-bold text-muted mb-2">Amount Breakdown <span className="text-danger">*</span></label>
-                                                    <div className="d-flex flex-column gap-2 p-2 bg-light border rounded" style={{ maxHeight: '220px', overflowY: 'auto' }}>
+                                                    <div className="d-flex flex-column gap-2 p-2 bg-light border rounded" style={{ maxHeight: '250px', overflowY: 'auto' }}>
                                                         {(!activeSlip.line_items || activeSlip.line_items.length === 0) ? (
-                                                            <div className="d-flex justify-content-between align-items-center bg-white p-2 rounded border shadow-sm">
+                                                            <div className="d-flex flex-wrap justify-content-between align-items-center bg-white p-2.5 rounded-3 border shadow-sm gap-2">
                                                                 <span className="small fw-bold text-dark">Total Balance</span>
-                                                                <div className="input-group input-group-sm w-auto" style={{ maxWidth: '120px' }}>
-                                                                    <span className="input-group-text bg-white small">PKR</span>
-                                                                    <input type="number" className="form-control form-control-sm text-end" placeholder="0"
-                                                                        value={headPayVals['fallback'] || ''} onChange={e => setHeadPayVals({ ...headPayVals, fallback: e.target.value })} min="0" />
+                                                                <div className="input-group input-group-sm w-auto" style={{ width: '130px', maxWidth: '140px' }}>
+                                                                    <span className="input-group-text bg-light text-muted small px-2 fw-bold" style={{ fontSize: '0.78rem' }}>PKR</span>
+                                                                    <input type="number" className="form-control form-control-sm text-end fw-bold no-spinner" placeholder="0"
+                                                                        onKeyDown={e => ['e', 'E', '+', '-', '.', 'ArrowUp', 'ArrowDown'].includes(e.key) && e.preventDefault()}
+                                                                        onWheel={e => (e.target as HTMLElement).blur()}
+                                                                        value={headPayVals['fallback'] || ''}
+                                                                        onChange={(e) => {
+                                                                            const vStr = e.target.value;
+                                                                            if (vStr === '') { setHeadPayVals({ ...headPayVals, fallback: '' }); return; }
+                                                                            let val = Math.max(0, parseFloat(vStr) || 0);
+                                                                            const totBal = Math.max(0, parseFloat(activeSlip.total_amount as any) - parseFloat(activeSlip.paid_amount as any));
+                                                                            if (totBal > 0 && val > totBal) val = totBal;
+                                                                            setHeadPayVals({ ...headPayVals, fallback: val > 0 ? val.toString() : '' });
+                                                                        }}
+                                                                        style={{ fontSize: '0.9rem', fontWeight: 600, padding: '4px 8px' }}
+                                                                        min="0" />
                                                                 </div>
                                                             </div>
                                                         ) : (
@@ -1011,22 +1301,29 @@ export default function CollectFeePage() {
                                                                     const dsDis = parseFloat(combRem) <= 0 && combPaid > 0;
 
                                                                     elements.push(
-                                                                        <div key={'comb-' + (keyIdx++)} className="d-flex justify-content-between align-items-center bg-white p-2 rounded border shadow-sm">
-                                                                            <div className="d-flex flex-column" style={{ width: '55%' }}>
-                                                                                <span className="text-dark fw-bold" style={{ fontSize: '0.85rem' }}>
+                                                                        <div key={'comb-' + (keyIdx++)} className="d-flex flex-wrap justify-content-between align-items-center bg-white p-2.5 rounded-3 border shadow-sm gap-2">
+                                                                            <div className="d-flex flex-column flex-grow-1 min-w-0 me-2" style={{ maxWidth: '100%' }}>
+                                                                                <span className="text-dark fw-bold text-truncate" style={{ fontSize: '0.88rem' }}>
                                                                                     {(tItem && pbItem) ? 'Tuition Fee + Prev. Balance' : (tItem ? (tItem.head_name || 'Tuition Fee') : (pbItem?.head_name || 'Previous Balance'))}
                                                                                 </span>
-                                                                                <span className="text-muted" style={{ fontSize: '0.7rem' }}>Billed: {combAmtB.toLocaleString('en-PK')} {combPaid > 0 ? ' • Paid: ' + combPaid.toLocaleString('en-PK') : ''}</span>
+                                                                                <span className="text-muted" style={{ fontSize: '0.72rem' }}>Billed: {combAmtB.toLocaleString('en-PK')} {combPaid > 0 ? ' • Paid: ' + combPaid.toLocaleString('en-PK') : ''}</span>
                                                                                 {(tItem && pbItem) && (
-                                                                                    <span className="text-muted" style={{ fontSize: '0.65rem' }}>
-                                                                                        (Remaining — Tuition: {tRem.toLocaleString('en-PK')} | Prev: {pbRem.toLocaleString('en-PK')})
+                                                                                    <span className="text-muted fw-semibold" style={{ fontSize: '0.68rem' }}>
+                                                                                        (Remaining Tuition: {tRem.toLocaleString('en-PK')} | Prev: {pbRem.toLocaleString('en-PK')})
                                                                                     </span>
                                                                                 )}
                                                                             </div>
-                                                                            <div className="d-flex align-items-center gap-2 justify-content-end" style={{ width: '45%' }}>
-                                                                                {combAmtB > 0 && <span className="text-danger fw-bold" style={{ fontSize: '0.75rem', whiteSpace: 'nowrap' }}>Bal: {combRem}</span>}
-                                                                                <div className="input-group input-group-sm w-auto" style={{ maxWidth: '100px' }}>
-                                                                                    <input type="number" className="form-control form-control-sm text-end" placeholder="0"
+                                                                            <div className="d-flex align-items-center gap-2 flex-wrap ms-auto">
+                                                                                {combAmtB > 0 && (
+                                                                                    <span className="badge bg-danger-subtle text-danger border border-danger-subtle fw-bold py-1.5 px-2" style={{ fontSize: '0.75rem', whiteSpace: 'nowrap' }}>
+                                                                                        Bal: {combRem}
+                                                                                    </span>
+                                                                                )}
+                                                                                <div className="input-group input-group-sm w-auto" style={{ width: '130px', maxWidth: '140px' }}>
+                                                                                    <span className="input-group-text bg-light text-muted small px-2 fw-bold" style={{ fontSize: '0.78rem' }}>PKR</span>
+                                                                                    <input type="number" className="form-control form-control-sm text-end fw-bold no-spinner" placeholder="0"
+                                                                                        onKeyDown={e => ['e', 'E', '+', '-', '.', 'ArrowUp', 'ArrowDown'].includes(e.key) && e.preventDefault()}
+                                                                                        onWheel={e => (e.target as HTMLElement).blur()}
                                                                                         value={combInputVal > 0 ? combInputVal : ''}
                                                                                         onChange={(e) => {
                                                                                             const vStr = e.target.value;
@@ -1034,7 +1331,11 @@ export default function CollectFeePage() {
                                                                                                 setHeadPayVals({ ...headPayVals, ...(pbId ? { [pbId]: '' } : {}), ...(tId ? { [tId]: '' } : {}) });
                                                                                                 return;
                                                                                             }
-                                                                                            const val = parseFloat(vStr) || 0;
+                                                                                            let val = Math.max(0, parseFloat(vStr) || 0);
+                                                                                            const maxComb = parseFloat(combRem) || 0;
+                                                                                            if (maxComb > 0 && val > maxComb) {
+                                                                                                val = maxComb; // Cap at remaining balance
+                                                                                            }
                                                                                             let newPb = 0, newT = 0;
                                                                                             if (val <= pbRem) {
                                                                                                 newPb = Math.max(0, val);
@@ -1050,6 +1351,7 @@ export default function CollectFeePage() {
                                                                                                 ...(tId ? { [tId]: newT > 0 ? newT.toString() : '' } : {})
                                                                                             });
                                                                                         }}
+                                                                                        style={{ fontSize: '0.9rem', fontWeight: 600, padding: '4px 8px' }}
                                                                                         disabled={dsDis} min="0" />
                                                                                 </div>
                                                                             </div>
@@ -1062,18 +1364,39 @@ export default function CollectFeePage() {
                                                                     const amtB = parseFloat(item.amount || 0);
                                                                     const paid = parseFloat(item.paid_amount || 0);
                                                                     const rem = (amtB - paid).toFixed(2);
+                                                                    const remNum = Math.max(0, parseFloat(rem) || 0);
                                                                     elements.push(
-                                                                        <div key={'other-' + (keyIdx++)} className="d-flex justify-content-between align-items-center bg-white p-2 rounded border shadow-sm">
-                                                                            <div className="d-flex flex-column" style={{ width: '55%' }}>
-                                                                                <span className="text-dark fw-bold" style={{ fontSize: '0.85rem' }}>{item.head_name || 'Previous Balance'}</span>
-                                                                                <span className="text-muted" style={{ fontSize: '0.7rem' }}>Billed: {amtB.toLocaleString('en-PK')} {paid > 0 ? ' • Paid: ' + paid.toLocaleString('en-PK') : ''}</span>
+                                                                        <div key={'other-' + (keyIdx++)} className="d-flex flex-wrap justify-content-between align-items-center bg-white p-2.5 rounded-3 border shadow-sm gap-2">
+                                                                            <div className="d-flex flex-column flex-grow-1 min-w-0 me-2" style={{ maxWidth: '100%' }}>
+                                                                                <span className="text-dark fw-bold text-truncate" style={{ fontSize: '0.88rem' }}>{item.head_name || 'Previous Balance'}</span>
+                                                                                <span className="text-muted" style={{ fontSize: '0.72rem' }}>Billed: {amtB.toLocaleString('en-PK')} {paid > 0 ? ' • Paid: ' + paid.toLocaleString('en-PK') : ''}</span>
                                                                             </div>
-                                                                            <div className="d-flex align-items-center gap-2 justify-content-end" style={{ width: '45%' }}>
-                                                                                {amtB > 0 && <span className="text-danger fw-bold" style={{ fontSize: '0.75rem', whiteSpace: 'nowrap' }}>Bal: {rem}</span>}
-                                                                                <div className="input-group input-group-sm w-auto" style={{ maxWidth: '100px' }}>
-                                                                                    <input type="number" className="form-control form-control-sm text-end" placeholder="0"
-                                                                                        value={headPayVals[headId] || ''} onChange={e => setHeadPayVals({ ...headPayVals, [headId]: e.target.value })}
-                                                                                        disabled={parseFloat(rem) <= 0 && paid > 0} min="0" />
+                                                                            <div className="d-flex align-items-center gap-2 flex-wrap ms-auto">
+                                                                                {amtB > 0 && (
+                                                                                    <span className="badge bg-danger-subtle text-danger border border-danger-subtle fw-bold py-1.5 px-2" style={{ fontSize: '0.75rem', whiteSpace: 'nowrap' }}>
+                                                                                        Bal: {rem}
+                                                                                    </span>
+                                                                                )}
+                                                                                <div className="input-group input-group-sm w-auto" style={{ width: '130px', maxWidth: '140px' }}>
+                                                                                    <span className="input-group-text bg-light text-muted small px-2 fw-bold" style={{ fontSize: '0.78rem' }}>PKR</span>
+                                                                                    <input type="number" className="form-control form-control-sm text-end fw-bold no-spinner" placeholder="0"
+                                                                                        onKeyDown={e => ['e', 'E', '+', '-', '.', 'ArrowUp', 'ArrowDown'].includes(e.key) && e.preventDefault()}
+                                                                                        onWheel={e => (e.target as HTMLElement).blur()}
+                                                                                        value={headPayVals[headId] || ''}
+                                                                                        onChange={(e) => {
+                                                                                            const vStr = e.target.value;
+                                                                                            if (vStr === '') {
+                                                                                                setHeadPayVals({ ...headPayVals, [headId]: '' });
+                                                                                                return;
+                                                                                            }
+                                                                                            let val = Math.max(0, parseFloat(vStr) || 0);
+                                                                                            if (remNum > 0 && val > remNum) {
+                                                                                                val = remNum; // Cap at remaining balance
+                                                                                            }
+                                                                                            setHeadPayVals({ ...headPayVals, [headId]: val > 0 ? val.toString() : '' });
+                                                                                        }}
+                                                                                        style={{ fontSize: '0.9rem', fontWeight: 600, padding: '4px 8px' }}
+                                                                                        disabled={remNum <= 0 && paid > 0} min="0" />
                                                                                 </div>
                                                                             </div>
                                                                         </div>
@@ -1172,6 +1495,18 @@ export default function CollectFeePage() {
                             </div>
                         </div>
                     </div>
+                    <style jsx global>{`
+                        /* Hide spinner arrows for Chrome, Safari, Edge, Opera */
+                        input.no-spinner::-webkit-outer-spin-button,
+                        input.no-spinner::-webkit-inner-spin-button {
+                            -webkit-appearance: none !important;
+                            margin: 0 !important;
+                        }
+                        /* Hide spinner arrows for Firefox */
+                        input.no-spinner[type=number] {
+                            -moz-appearance: textfield !important;
+                        }
+                    `}</style>
                 </>
             )}
         </div>

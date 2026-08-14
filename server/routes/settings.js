@@ -4,7 +4,7 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 
-// Multer storage – save to uploads/ with original extension
+// Multer storage – save to uploads/ with unique filename to prevent browser caching
 const storage = multer.diskStorage({
     destination: (req, file, cb) => {
         const dir = path.join(__dirname, '../uploads');
@@ -13,12 +13,12 @@ const storage = multer.diskStorage({
     },
     filename: (req, file, cb) => {
         const ext = path.extname(file.originalname).toLowerCase();
-        cb(null, `school_logo${ext}`);
+        cb(null, `school_logo_${Date.now()}${ext}`);
     }
 });
 const upload = multer({
     storage,
-    limits: { fileSize: 2 * 1024 * 1024 },
+    limits: { fileSize: 25 * 1024 * 1024 },
     fileFilter: (req, file, cb) => {
         if (/^image\/(png|jpeg|jpg|gif|svg\+xml|webp)$/.test(file.mimetype)) cb(null, true);
         else cb(new Error('Only image files are allowed'));
@@ -44,7 +44,7 @@ router.put('/', async (req, res) => {
     try {
         const { 
             school_name, address, contact_number, email, 
-            tagline, website, facebook_link, twitter_link, instagram_link 
+            tagline, website, logo_url, facebook_link, twitter_link, instagram_link 
         } = req.body;
 
         // Check if settings exist
@@ -55,21 +55,22 @@ router.put('/', async (req, res) => {
             // Insert
             result = await pool.query(
                 `INSERT INTO school_settings 
-                (school_name, address, contact_number, email, tagline, website, facebook_link, twitter_link, instagram_link) 
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) 
+                (school_name, address, contact_number, email, tagline, website, logo_url, facebook_link, twitter_link, instagram_link) 
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) 
                 RETURNING *`,
-                [school_name, address, contact_number, email, tagline, website, facebook_link, twitter_link, instagram_link]
+                [school_name, address, contact_number, email, tagline, website, logo_url || null, facebook_link, twitter_link, instagram_link]
             );
         } else {
             // Update
-            const id = check.rows[0].id;
+            const existing = check.rows[0];
+            const finalLogoUrl = logo_url !== undefined ? logo_url : existing.logo_url;
             result = await pool.query(
                 `UPDATE school_settings 
                 SET school_name = $1, address = $2, contact_number = $3, email = $4, 
-                    tagline = $5, website = $6, facebook_link = $7, twitter_link = $8, instagram_link = $9
-                WHERE id = $10 
+                    tagline = $5, website = $6, logo_url = $7, facebook_link = $8, twitter_link = $9, instagram_link = $10
+                WHERE id = $11 
                 RETURNING *`,
-                [school_name, address, contact_number, email, tagline, website, facebook_link, twitter_link, instagram_link, id]
+                [school_name, address, contact_number, email, tagline, website, finalLogoUrl, facebook_link, twitter_link, instagram_link, existing.id]
             );
         }
 
@@ -104,11 +105,26 @@ router.post('/reset-database', async (req, res) => {
     }
 });
 
-// Upload School Logo
-router.post('/logo', upload.single('logo'), async (req, res) => {
+// Upload School Logo (Stores Base64 Data URL directly in Postgres so Render restarts never wipe out the logo)
+router.post('/logo', (req, res, next) => {
+    if (req.is('json') || (req.headers['content-type'] && req.headers['content-type'].includes('application/json'))) {
+        return next();
+    }
+    upload.single('logo')(req, res, next);
+}, async (req, res) => {
     try {
-        if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
-        const logoUrl = `/uploads/${req.file.filename}`;
+        let logoUrl = '';
+
+        if (req.body && req.body.logo_data) {
+            logoUrl = req.body.logo_data;
+        } else if (req.file) {
+            const fileBuffer = fs.readFileSync(req.file.path);
+            const base64Str = fileBuffer.toString('base64');
+            logoUrl = `data:${req.file.mimetype};base64,${base64Str}`;
+            try { fs.unlinkSync(req.file.path); } catch (e) {}
+        } else {
+            return res.status(400).json({ error: 'No logo file or data provided' });
+        }
 
         const check = await pool.query('SELECT id FROM school_settings LIMIT 1');
         if (check.rows.length === 0) {

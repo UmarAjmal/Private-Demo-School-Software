@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Demo Smart School</string>
+    <string name="title_activity_main">Demo Smart School</string>
+    <string name="package_name">com.demosmartschool.app</string>
+    <string name="custom_url_scheme">com.demosmartschool.app</string>
+</resources>

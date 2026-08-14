@@ -47,18 +47,18 @@ router.post('/generate', async (req, res) => {
             }
             const conflictingMonths = [...conflictingSet]
                 .filter(m => monthsArray.includes(m))
-                .sort((a,b)=>a-b)
+                .sort((a, b) => a - b)
                 .join(', ');
             return res.status(400).json({ error: `Cannot generate. The following month(s) are already generated for this class: ${conflictingMonths}. Please select only ungenerated months or undo the existing ones first.` });
         }
 
-        const firstMonth  = monthsArray[0];
-        const lastMonth   = monthsArray[monthsArray.length - 1];
+        const firstMonth = monthsArray[0];
+        const lastMonth = monthsArray[monthsArray.length - 1];
         const monthsCount = monthsArray.length;
 
         // Build a human-readable label like "Feb 2026" or "Feb – Mar 2026"
-        const MONTH_NAMES = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-        const monthLabel  = monthsCount === 1
+        const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+        const monthLabel = monthsCount === 1
             ? `${MONTH_NAMES[firstMonth - 1]} ${year}`
             : `${MONTH_NAMES[firstMonth - 1]} – ${MONTH_NAMES[lastMonth - 1]} ${year}`;
 
@@ -72,14 +72,14 @@ router.post('/generate', async (req, res) => {
 
         let planResult;
         if (explicitPlanId) {
-             planResult = await client.query(
+            planResult = await client.query(
                 `SELECT fp.plan_id
                  FROM fee_plans fp
                  WHERE fp.plan_id = $1 AND fp.is_active = TRUE`,
                 [explicitPlanId]
             );
         } else {
-             planResult = await client.query(
+            planResult = await client.query(
                 `SELECT fp.plan_id
                  FROM fee_plans fp
                  LEFT JOIN fee_plan_classes fpc ON fpc.plan_id = fp.plan_id
@@ -92,7 +92,7 @@ router.post('/generate', async (req, res) => {
         }
         if (planResult.rows.length === 0) {
             await client.query('ROLLBACK');
-            return res.status(404).json({ error: 'No active fee plan found for this class.' });
+            return res.status(400).json({ error: 'No active fee plan found for this class.' });
         }
         const planId = planResult.rows[0].plan_id;
         const planHeads = await client.query(
@@ -116,7 +116,7 @@ router.post('/generate', async (req, res) => {
         );
         if (studentsResult.rows.length === 0) {
             await client.query('ROLLBACK');
-            return res.status(404).json({ error: 'No active students found in this class' });
+            return res.status(400).json({ error: 'No active students found in this class' });
         }
 
         // ─── Group students by family_id to identify multi-member families ───
@@ -146,7 +146,7 @@ router.post('/generate', async (req, res) => {
             const allFamilyIds = [
                 ...Object.keys(familyGroups),
                 ...soloStudents.filter(s => s.family_id).map(s => s.family_id)
-            ].filter(Boolean); // keep as strings — family_id is 'FAM-2026-XXXX' not integer
+            ].filter(Boolean); // keep as strings family_id is 'FAM-2026-XXXX' not integer
             const uniqueFamilyIds = [...new Set(allFamilyIds)];
             if (uniqueFamilyIds.length > 0) {
                 // 1. OPB remaining from families table
@@ -197,7 +197,7 @@ router.post('/generate', async (req, res) => {
             }
         }
 
-        // ─── Helper: build line items from plan heads (skips prev_balance — handled separately) ─
+        // ─── Helper: build line items from plan heads (skips prev_balance handled separately) ─
         const buildLineItems = (personalFee, multiplier = 1) => {
             return planHeads.rows
                 .filter(head => head.head_type !== 'prev_balance') // Previous Balance added separately
@@ -227,7 +227,7 @@ router.post('/generate', async (req, res) => {
                     (student_id, family_id, class_id, month, year, due_date, issue_date, total_amount, is_family_slip, has_multi_months, months_list)
                  VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING slip_id`,
                 [student.student_id, student.family_id, actualClassId,
-                 month, year, due_date || null, issue_date || null, totalAmount, isFamilySlip, hasMulti, monthsArray]
+                    month, year, due_date || null, issue_date || null, totalAmount, isFamilySlip, hasMulti, monthsArray]
             );
             const slipId = slip.rows[0].slip_id;
             for (const item of lineItems)
@@ -338,6 +338,15 @@ router.post('/generate', async (req, res) => {
         const coveredByIndividual = soloStudents.length;
 
         await client.query('COMMIT');
+
+        // Trigger instant initial fee notification delivery to families
+        try {
+            const { dispatchFeeReminderNotifications } = require('../scheduler');
+            dispatchFeeReminderNotifications(false);
+        } catch (schedErr) {
+            console.error("Initial fee reminder trigger error:", schedErr.message);
+        }
+
         res.status(201).json({
             message: 'Fee slips generated',
             generated: generatedCount,
@@ -361,32 +370,73 @@ router.get('/available-months', async (req, res) => {
         const { year, class_id } = req.query;
         let query = 'SELECT DISTINCT COALESCE(months_list, ARRAY[month]) AS months_array FROM monthly_fee_slips WHERE 1=1';
         let params = [];
-        if (year) { 
+        if (year) {
             params.push(year);
-            query += ` AND year = $${params.length}`; 
+            query += ` AND year = $${params.length}`;
         }
         if (class_id) {
             params.push(class_id);
             query += ` AND class_id = $${params.length}`;
         }
         const result = await pool.query(query, params);
-        
-        const MONTH_NAMES = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-        
+
+        const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
         const data = result.rows.map(r => {
-            const arr = r.months_array.map(Number).sort((a,b)=>a-b);
+            const arr = r.months_array.map(Number).sort((a, b) => a - b);
             const val = arr.join(',');
-            let lbl = arr.length === 1 
-                ? MONTH_NAMES[arr[0]-1] 
-                : `${MONTH_NAMES[arr[0]-1]} - ${MONTH_NAMES[arr[arr.length-1]-1]}`;
+            let lbl = arr.length === 1
+                ? MONTH_NAMES[arr[0] - 1]
+                : `${MONTH_NAMES[arr[0] - 1]} - ${MONTH_NAMES[arr[arr.length - 1] - 1]}`;
             return { value: val, label: lbl, months: arr };
         });
-        
+
         data.sort((a, b) => a.months[0] - b.months[0]);
-        
+
         res.json({ months: data });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
+
+const cleanupCorruptLineItems = async () => {
+    try {
+        await pool.query(`
+            UPDATE slip_line_items 
+            SET paid_amount = 0 
+            WHERE slip_id IN (SELECT slip_id FROM monthly_fee_slips WHERE paid_amount <= 0 OR paid_amount IS NULL)
+        `);
+        await pool.query(`
+            UPDATE slip_line_items 
+            SET paid_amount = LEAST(paid_amount, amount) 
+            WHERE paid_amount > amount
+        `);
+        const mismatchSlips = await pool.query(`
+            SELECT mfs.slip_id, mfs.paid_amount
+            FROM monthly_fee_slips mfs
+            JOIN (
+                SELECT slip_id, SUM(paid_amount) as sum_paid
+                FROM slip_line_items
+                GROUP BY slip_id
+            ) sli ON sli.slip_id = mfs.slip_id
+            WHERE ABS(sli.sum_paid - mfs.paid_amount) > 0.01
+        `);
+        for (const s of mismatchSlips.rows) {
+            const slipId = s.slip_id;
+            const slipPaid = parseFloat(s.paid_amount) || 0;
+            await pool.query('UPDATE slip_line_items SET paid_amount = 0 WHERE slip_id = $1', [slipId]);
+            if (slipPaid > 0) {
+                const items = await pool.query('SELECT item_id, amount FROM slip_line_items WHERE slip_id = $1 ORDER BY item_id', [slipId]);
+                let remAlloc = slipPaid;
+                for (const item of items.rows) {
+                    if (remAlloc <= 0) break;
+                    const itemAmt = parseFloat(item.amount) || 0;
+                    const itemPaid = parseFloat(Math.min(remAlloc, itemAmt).toFixed(2));
+                    await pool.query('UPDATE slip_line_items SET paid_amount = $1 WHERE item_id = $2', [itemPaid, item.item_id]);
+                    remAlloc = parseFloat((remAlloc - itemPaid).toFixed(2));
+                }
+            }
+        }
+    } catch (e) { }
+};
 
 // GET /fee-slips?class_id=&year=&month= (class_id optional, month optional)
 router.get('/', async (req, res) => {
@@ -394,14 +444,17 @@ router.get('/', async (req, res) => {
         const { class_id, month, year } = req.query;
         if (!year) return res.status(400).json({ error: 'year is required' });
 
+        // Auto-cleanup any corrupt line item paid amounts before returning slips
+        await cleanupCorruptLineItems();
+
         // Build WHERE conditions dynamically
         const params = [year];
         let monthClause = '';
         if (month) {
             params.push(month.split(',').map(Number));
-            monthClause  = `AND COALESCE(mfs.months_list, ARRAY[mfs.month]) = $${params.length}::int[]`;
+            monthClause = `AND COALESCE(mfs.months_list, ARRAY[mfs.month]) = $${params.length}::int[]`;
         }
-        const classClause  = class_id
+        const classClause = class_id
             ? `AND (
                 mfs.class_id = $${params.push(class_id)}
                 OR (
@@ -417,7 +470,7 @@ router.get('/', async (req, res) => {
         const result = await pool.query(`
             SELECT mfs.*, s.first_name, s.last_name, s.admission_no, s.family_id,
                      s.father_name, s.father_phone, c.class_name, sec.section_name, s.category,
-                COALESCE(JSON_AGG(JSON_BUILD_OBJECT('item_id',sli.item_id,'head_name',sli.head_name,'amount',sli.amount,'note',sli.note) ORDER BY sli.item_id) FILTER (WHERE sli.item_id IS NOT NULL),'[]') as line_items
+                COALESCE(JSON_AGG(JSON_BUILD_OBJECT('item_id',sli.item_id,'head_name',sli.head_name,'amount',sli.amount,'paid_amount',COALESCE(sli.paid_amount,0),'note',sli.note) ORDER BY sli.item_id) FILTER (WHERE sli.item_id IS NOT NULL),'[]') as line_items
             FROM monthly_fee_slips mfs
             JOIN students s ON mfs.student_id = s.student_id
             LEFT JOIN classes c ON mfs.class_id = c.class_id
@@ -429,18 +482,18 @@ router.get('/', async (req, res) => {
             GROUP BY mfs.slip_id, s.first_name, s.last_name, s.admission_no, s.family_id,
                        s.father_name, s.father_phone, c.class_name, sec.section_name, s.category
             ORDER BY mfs.month ASC, s.first_name ASC`, params);
-                  // Force trusted category to satteled
-          result.rows.forEach(r => {
-              if (r.category && r.category.trim().toLowerCase() === 'trusted') r.status = 'satteled';
-          });
-          const stats = {
-              total_students: result.rows.length,
-              total_amount: result.rows.reduce((s, r) => s + parseFloat(r.total_amount), 0),
-              paid_amount: result.rows.reduce((s, r) => s + parseFloat(r.paid_amount), 0),
-              paid_count: result.rows.filter(r => ['paid', 'satteled'].includes(r.status)).length,
-              unpaid_count: result.rows.filter(r => r.status === 'unpaid').length,
-              partial_count: result.rows.filter(r => r.status === 'partial').length,
-          };
+        // Force trusted category to satteled
+        result.rows.forEach(r => {
+            if (r.category && r.category.trim().toLowerCase() === 'trusted') r.status = 'satteled';
+        });
+        const stats = {
+            total_students: result.rows.length,
+            total_amount: result.rows.reduce((s, r) => s + parseFloat(r.total_amount), 0),
+            paid_amount: result.rows.reduce((s, r) => s + parseFloat(r.paid_amount), 0),
+            paid_count: result.rows.filter(r => ['paid', 'satteled'].includes(r.status)).length,
+            unpaid_count: result.rows.filter(r => r.status === 'unpaid').length,
+            partial_count: result.rows.filter(r => r.status === 'partial').length,
+        };
 
         // For family slips, attach all active students in this class that share the family_id
         const familySlipIds = result.rows
@@ -476,7 +529,7 @@ router.get('/', async (req, res) => {
 });
 
 // ============================================================
-// ADMISSION FEE LEDGER — declared BEFORE /:id to avoid conflict
+// ADMISSION FEE LEDGER declared BEFORE /:id to avoid conflict
 // ============================================================
 
 // GET /fee-slips/admission-fees
@@ -508,7 +561,7 @@ router.get('/admission-fees', async (req, res) => {
                    COALESCE(SUM(paid_amount),0) AS total_collected,
                    COALESCE(SUM(total_amount - paid_amount - COALESCE(discount_amount, 0)),0) AS total_outstanding
             FROM admission_fee_ledger`);
-        res.json({ ledgers: result.rows, stats: statsResult.rows[0] });      
+        res.json({ ledgers: result.rows, stats: statsResult.rows[0] });
     } catch (err) { console.error(err); res.status(500).json({ error: err.message }); }
 });
 
@@ -527,7 +580,7 @@ router.get('/admission-fees/student/:student_id', async (req, res) => {
             WHERE afl.student_id = $1`, [student_id]);
         if (ledger.rows.length === 0) return res.json({ ledger: null, payments: [] });
         const payments = await pool.query(`SELECT * FROM admission_fee_payments WHERE ledger_id=$1 ORDER BY payment_date DESC`, [ledger.rows[0].ledger_id]);
-        res.json({ ledger: ledger.rows[0], payments: payments.rows });       
+        res.json({ ledger: ledger.rows[0], payments: payments.rows });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -554,15 +607,15 @@ router.post('/admission-fees/:ledger_id/pay', async (req, res) => {
         const oldPaid = parseFloat(current.paid_amount) || 0;
         const oldDisc = parseFloat(current.discount_amount) || 0;
         const total = parseFloat(current.total_amount) || 0;
-        
+
         const newPaid = oldPaid + payVal;
         const newDisc = oldDisc + discVal;
         const totalCleared = newPaid + newDisc;
         const remaining = total - totalCleared;
 
-        if (remaining < 0) { 
-            await client.query('ROLLBACK'); 
-            return res.status(400).json({ error: `Overpayment/overdiscount not allowed. Remaining: Rs. ${(total - oldPaid - oldDisc).toFixed(0)}` }); 
+        if (remaining < 0) {
+            await client.query('ROLLBACK');
+            return res.status(400).json({ error: `Overpayment/overdiscount not allowed. Remaining: Rs. ${(total - oldPaid - oldDisc).toFixed(0)}` });
         }
 
         const newStatus = remaining <= 0 ? 'paid' : (totalCleared > 0 ? 'partial' : 'unpaid');
@@ -571,7 +624,7 @@ router.post('/admission-fees/:ledger_id/pay', async (req, res) => {
             INSERT INTO admission_fee_payments (ledger_id, amount_paid, discount_amount, payment_date, payment_method, received_by, reference_no, notes) 
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING payment_id
         `, [ledger_id, payVal, discVal, payment_date || new Date(), payment_method || 'cash', received_by, reference_no, notes]);
-        
+
         const updated = await client.query(`
             UPDATE admission_fee_ledger 
             SET paid_amount=$1, discount_amount=$2, status=$3 
@@ -584,7 +637,7 @@ router.post('/admission-fees/:ledger_id/pay', async (req, res) => {
             const today = new Date();
             const currentMonth = today.getMonth() + 1;
             const currentYear = today.getFullYear();
-            
+
             // Check if monthly limit already exists for this student + month
             const existingSlip = await client.query(
                 `SELECT slip_id FROM monthly_fee_slips WHERE student_id = $1 AND month = $2 AND year = $3 LIMIT 1`,
@@ -601,10 +654,10 @@ router.post('/admission-fees/:ledger_id/pay', async (req, res) => {
                     VALUES ($1, (SELECT family_id FROM students WHERE student_id=$1), (SELECT class_id FROM students WHERE student_id=$1), $2, $3, $4, $5, $6, ARRAY[$2]::int[])
                     RETURNING slip_id`,
                     [
-                        current.student_id, 
-                        currentMonth, 
-                        currentYear, 
-                        tuitionAmt, 
+                        current.student_id,
+                        currentMonth,
+                        currentYear,
+                        tuitionAmt,
                         Math.min(tuitionAmt, tuitionRec),
                         tuitionRec >= tuitionAmt ? 'paid' : (tuitionRec > 0 ? 'partial' : 'unpaid')
                     ]
@@ -623,7 +676,7 @@ router.post('/admission-fees/:ledger_id/pay', async (req, res) => {
                     INSERT INTO slip_line_items (slip_id, head_id, head_name, amount, paid_amount, note)
                     VALUES ($1, NULL, 'Tuition Fee', $2, $3, 'Added upfront during admission')
                 `, [activeSlipId, tuitionAmt, Math.min(tuitionAmt, tuitionRec)]);
-                
+
                 await client.query(`
                     UPDATE monthly_fee_slips 
                     SET total_amount = total_amount + $1, 
@@ -641,30 +694,30 @@ router.post('/admission-fees/:ledger_id/pay', async (req, res) => {
                     `INSERT INTO fee_payments (slip_id, amount_paid, payment_date, payment_method, received_by, reference_no, notes)
                     VALUES ($1, $2, $3, $4, $5, $6, $7)`,
                     [
-                        activeSlipId, 
-                        Math.min(tuitionAmt, tuitionRec), 
-                        payment_date || new Date(), 
-                        payment_method || 'cash', 
-                        received_by, 
-                        reference_no, 
+                        activeSlipId,
+                        Math.min(tuitionAmt, tuitionRec),
+                        payment_date || new Date(),
+                        payment_method || 'cash',
+                        received_by,
+                        reference_no,
                         'Collected upfront during Admission via Ledger'
                     ]
                 );
             }
         }
 
-            await client.query('COMMIT');
-            res.json({ message: 'Payment recorded successfully', ledger: updated.rows[0] });
-        } catch (err) {
-            await client.query('ROLLBACK'); 
-            console.error('Error during admission fee payment:', err);
-            res.status(500).json({ error: err.message });
-        } finally {
-            client.release();
-        }
+        await client.query('COMMIT');
+        res.json({ message: 'Payment recorded successfully', ledger: updated.rows[0] });
+    } catch (err) {
+        await client.query('ROLLBACK');
+        console.error('Error during admission fee payment:', err);
+        res.status(500).json({ error: err.message });
+    } finally {
+        client.release();
+    }
 });
 // ============================================================
-// PRINT QUEUE — family-grouped vouchers with print tracking
+// PRINT QUEUE family-grouped vouchers with print tracking
 // GET /fee-slips/print-queue?month=&year=&class_id=
 // ============================================================
 router.get('/print-queue', async (req, res) => {
@@ -703,7 +756,7 @@ router.get('/print-queue', async (req, res) => {
         const familyMap = {};
         const soloSlips = [];
         for (const slip of allSlips) {
-            // Use is_family_slip flag — a student can have family_id but still get an individual slip
+            // Use is_family_slip flag a student can have family_id but still get an individual slip
             // if they were the only active family member at generation time
             if (!slip.is_family_slip) {
                 soloSlips.push(slip);
@@ -729,9 +782,15 @@ router.get('/print-queue', async (req, res) => {
             });
         }
 
-        // Family vouchers — primary = student in highest class (max class_id)
+        // Family vouchers primary = student in highest class (max class_id)
         for (const [fid, slips] of Object.entries(familyMap)) {
-            slips.sort((a, b) => (b.c_class_id || 0) - (a.c_class_id || 0) || a.first_name.localeCompare(b.first_name));
+            slips.sort((a, b) => {
+                if ((b.c_class_id || 0) !== (a.c_class_id || 0)) return (b.c_class_id || 0) - (a.c_class_id || 0);
+                const secA = a.section_name || '';
+                const secB = b.section_name || '';
+                if (secA !== secB) return secA.localeCompare(secB);
+                return (a.first_name || '').localeCompare(b.first_name || '');
+            });
             const primary = slips[0];
             const siblings = slips.slice(1);
             vouchers.push({
@@ -757,7 +816,7 @@ router.get('/print-queue', async (req, res) => {
                  LEFT JOIN classes c ON s.class_id = c.class_id
                  LEFT JOIN sections sec ON s.section_id = sec.section_id
                  WHERE s.family_id = ANY($1) AND s.status = 'Active'
-                 ORDER BY c.class_id DESC NULLS LAST, s.first_name`,
+                 ORDER BY c.class_id DESC NULLS LAST, sec.section_name ASC NULLS LAST, s.first_name`,
                 [familyIds]
             );
             const membersMap = {};
@@ -799,11 +858,16 @@ router.get('/print-queue', async (req, res) => {
             }
         }
 
-        // Sort: class_id DESC, then pending first, then by name
+        // Sort: class_id DESC, then section_name ASC, then pending first, then by name
         filteredVouchers.sort((a, b) => {
             const classA = a.primary.c_class_id || 0;
             const classB = b.primary.c_class_id || 0;
             if (classA !== classB) return classB - classA;
+
+            const secA = a.primary.section_name || '';
+            const secB = b.primary.section_name || '';
+            if (secA !== secB) return secA.localeCompare(secB);
+
             if (!a.is_printed && b.is_printed) return -1;
             if (a.is_printed && !b.is_printed) return 1;
             return (a.primary.first_name || '').localeCompare(b.primary.first_name || '');
@@ -836,7 +900,7 @@ router.post('/mark-printed', async (req, res) => {
 });
 
 // ============================================================
-// MONTHLY SLIP DETAIL & PAYMENT — after /admission-fees
+// MONTHLY SLIP DETAIL & PAYMENT after /admission-fees
 // ============================================================
 
 // GET /fee-slips/:id
@@ -867,11 +931,11 @@ router.post('/:id/pay', async (req, res) => {
         const slip = await client.query('SELECT * FROM monthly_fee_slips WHERE slip_id=$1 FOR UPDATE', [id]);
         if (slip.rows.length === 0) { await client.query('ROLLBACK'); return res.status(404).json({ error: 'Slip not found' }); }
         const cur = slip.rows[0];
-        const prevPaid   = parseFloat(cur.paid_amount);
-        const paidNow    = parseFloat(amount_paid);
-        const newPaid    = prevPaid + paidNow;
-        const total      = parseFloat(cur.total_amount);
-        const newStatus  = newPaid >= total ? 'paid' : newPaid > 0 ? 'partial' : 'unpaid';
+        const prevPaid = parseFloat(cur.paid_amount);
+        const paidNow = parseFloat(amount_paid);
+        const newPaid = prevPaid + paidNow;
+        const total = parseFloat(cur.total_amount);
+        const newStatus = newPaid >= total ? 'paid' : newPaid > 0 ? 'partial' : 'unpaid';
 
         // Record the payment itself
         await client.query(
@@ -883,6 +947,29 @@ router.post('/:id/pay', async (req, res) => {
             `UPDATE monthly_fee_slips SET paid_amount=$1, status=$2 WHERE slip_id=$3 RETURNING *`,
             [newPaid, newStatus, id]
         );
+
+        // Dispatch notification to Family Unit
+        try {
+            const { createNotification } = require('../utils/notify');
+            const slipObj = updated.rows[0];
+            if (slipObj) {
+                const stuRes = await client.query(`SELECT CONCAT(first_name, ' ', last_name) AS full_name, family_id FROM students WHERE student_id = $1`, [slipObj.student_id]);
+                const stuName = stuRes.rows[0]?.full_name || 'Student';
+                const famId = slipObj.family_id || stuRes.rows[0]?.family_id;
+
+                await createNotification({
+                    familyId: famId,
+                    studentId: slipObj.student_id,
+                    type: 'fee_payment',
+                    title: 'Fee Payment Received 💳',
+                    message: `Payment of PKR ${parseFloat(paidNow).toLocaleString('en-PK')} received for ${stuName} (Family ID: ${famId || 'N/A'}). Status: ${newStatus.toUpperCase()}.`,
+                    link: '/fees/collect',
+                    clientOrPool: client
+                });
+            }
+        } catch (notifErr) {
+            console.error("Notification dispatch error:", notifErr.message);
+        }
 
         if (head_breakdown && typeof head_breakdown === 'object') {
             for (const [itemId, amount] of Object.entries(head_breakdown)) {
@@ -910,14 +997,14 @@ router.post('/:id/pay', async (req, res) => {
             [id]
         );
         if (pbItems.rows.length > 0 && pbItems.rows[0].family_id) {
-            const pbAmount   = pbItems.rows.reduce((s, r) => s + parseFloat(r.amount), 0);
-            const familyId   = pbItems.rows[0].family_id;
+            const pbAmount = pbItems.rows.reduce((s, r) => s + parseFloat(r.amount), 0);
+            const familyId = pbItems.rows[0].family_id;
             const nonPbTotal = total - pbAmount;
 
             // How much of THIS payment went toward the prev_balance portion?
             const prevPbCollected = Math.max(0, prevPaid - nonPbTotal);
-            const newPbCollected  = Math.max(0, Math.min(newPaid - nonPbTotal, pbAmount));
-            let   pbThisPayment   = parseFloat((newPbCollected - prevPbCollected).toFixed(2));
+            const newPbCollected = Math.max(0, Math.min(newPaid - nonPbTotal, pbAmount));
+            let pbThisPayment = parseFloat((newPbCollected - prevPbCollected).toFixed(2));
 
             if (pbThisPayment > 0) {
                 // ── Step 1: Settle OPB first (oldest debt, pre-system dues) ──────
@@ -926,8 +1013,8 @@ router.post('/:id/pay', async (req, res) => {
                     [familyId]
                 );
                 if (fam.rows.length > 0) {
-                    const opbTotal  = parseFloat(fam.rows[0].opening_balance) || 0;
-                    const opbPaid   = parseFloat(fam.rows[0].opening_balance_paid) || 0;
+                    const opbTotal = parseFloat(fam.rows[0].opening_balance) || 0;
+                    const opbPaid = parseFloat(fam.rows[0].opening_balance_paid) || 0;
                     const opbRemain = Math.max(0, opbTotal - opbPaid);
                     const opbSettle = parseFloat(Math.min(pbThisPayment, opbRemain).toFixed(2));
                     if (opbSettle > 0) {
@@ -940,8 +1027,8 @@ router.post('/:id/pay', async (req, res) => {
                                 (family_id, amount, payment_date, payment_method, received_by, reference_no, notes)
                              VALUES ($1, $2, $3, $4, $5, $6, $7)`,
                             [familyId, opbSettle, payment_date || new Date(),
-                             payment_method || 'cash', received_by || null,
-                             reference_no || null, `Auto via fee slip #${id}`]
+                                payment_method || 'cash', received_by || null,
+                                reference_no || null, `Auto via fee slip #${id}`]
                         );
                         pbThisPayment = parseFloat((pbThisPayment - opbSettle).toFixed(2));
                     }
@@ -976,14 +1063,14 @@ router.post('/:id/pay', async (req, res) => {
                     for (const old of oldSlips.rows) {
                         if (pbThisPayment <= 0) break;
                         const oldTotal = parseFloat(old.total_amount);
-                        const oldPaid  = parseFloat(old.paid_amount);
-                        const oldExcl  = parseFloat(old.excl_sum);
+                        const oldPaid = parseFloat(old.paid_amount);
+                        const oldExcl = parseFloat(old.excl_sum);
                         // Net fees owed = total minus prev_balance/admission lines, minus what's paid
                         const baseOwed = Math.max(0, (oldTotal - oldExcl) - oldPaid);
                         if (baseOwed > 0) {
-                            const settle      = parseFloat(Math.min(pbThisPayment, baseOwed).toFixed(2));
-                            const newOldPaid  = parseFloat((oldPaid + settle).toFixed(2));
-                            const newOldStat  = newOldPaid >= oldTotal ? 'paid' : 'partial';
+                            const settle = parseFloat(Math.min(pbThisPayment, baseOwed).toFixed(2));
+                            const newOldPaid = parseFloat((oldPaid + settle).toFixed(2));
+                            const newOldStat = newOldPaid >= oldTotal ? 'paid' : 'partial';
                             await client.query(
                                 `UPDATE monthly_fee_slips SET paid_amount=$1, status=$2 WHERE slip_id=$3`,
                                 [newOldPaid, newOldStat, old.slip_id]
@@ -1004,7 +1091,7 @@ router.post('/:id/pay', async (req, res) => {
 
 // PUT /fee-slips/payments/:payment_id/print
 router.put('/payments/:payment_id/print', async (req, res) => {
-    try { await pool.query('UPDATE fee_payments SET is_printed = TRUE WHERE payment_id = $1', [req.params.payment_id]); res.json({ success: true }); } 
+    try { await pool.query('UPDATE fee_payments SET is_printed = TRUE WHERE payment_id = $1', [req.params.payment_id]); res.json({ success: true }); }
     catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -1014,7 +1101,7 @@ router.put('/payments/:payment_id/print', async (req, res) => {
     catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// DELETE /fee-slips/payments/:payment_id  — reverse / delete a single payment
+// DELETE /fee-slips/payments/:payment_id  reverse / delete a single payment
 router.delete('/payments/:payment_id', async (req, res) => {
     const client = await pool.connect();
     try {
@@ -1042,7 +1129,7 @@ router.delete('/payments/:payment_id', async (req, res) => {
             'SELECT COALESCE(SUM(amount_paid),0) AS total FROM fee_payments WHERE slip_id=$1',
             [p.slip_id]
         );
-        const newPaid   = parseFloat(remaining.rows[0].total);
+        const newPaid = parseFloat(remaining.rows[0].total);
         const slipTotal = parseFloat(slipData.total_amount);
         const newStatus = newPaid >= slipTotal ? 'paid' : newPaid > 0 ? 'partial' : 'unpaid';
 
@@ -1050,6 +1137,20 @@ router.delete('/payments/:payment_id', async (req, res) => {
             'UPDATE monthly_fee_slips SET paid_amount=$1, status=$2 WHERE slip_id=$3 RETURNING *',
             [newPaid, newStatus, p.slip_id]
         );
+
+        // ── Re-sync slip_line_items paid_amount for this slip ─────────────
+        await client.query('UPDATE slip_line_items SET paid_amount = 0 WHERE slip_id = $1', [p.slip_id]);
+        if (newPaid > 0) {
+            const itemsRes = await client.query('SELECT item_id, amount FROM slip_line_items WHERE slip_id = $1 ORDER BY item_id', [p.slip_id]);
+            let remAlloc = newPaid;
+            for (const item of itemsRes.rows) {
+                if (remAlloc <= 0) break;
+                const itemAmt = parseFloat(item.amount) || 0;
+                const itemPaid = parseFloat(Math.min(remAlloc, itemAmt).toFixed(2));
+                await client.query('UPDATE slip_line_items SET paid_amount = $1 WHERE item_id = $2', [itemPaid, item.item_id]);
+                remAlloc = parseFloat((remAlloc - itemPaid).toFixed(2));
+            }
+        }
 
         // ── Reverse OPB Waterfall ─────────────────────────────────────────────
         // When a payment was recorded, the waterfall may have:
@@ -1079,7 +1180,7 @@ router.delete('/payments/:payment_id', async (req, res) => {
                 );
 
                 // ── Step 2: Reset opening_balance_paid to match only remaining records ──────
-                // (other manual payments, other slips — NOT this slip any more)
+                // (other manual payments, other slips NOT this slip any more)
                 const opbSumRes = await client.query(
                     `SELECT COALESCE(SUM(amount), 0) AS total
                      FROM family_opb_payments WHERE family_id = $1`,
@@ -1093,8 +1194,8 @@ router.delete('/payments/:payment_id', async (req, res) => {
 
                 // ── Step 3: Recompute what OPB this slip covers with REMAINING payments ──
                 // nonPbTotal = what covers tuition + other heads (before PB portion starts)
-                const nonPbTotal  = slipTotal - pbAmount;
-                const opbContrib  = parseFloat(Math.max(0, Math.min(newPaid - nonPbTotal, pbAmount)).toFixed(2));
+                const nonPbTotal = slipTotal - pbAmount;
+                const opbContrib = parseFloat(Math.max(0, Math.min(newPaid - nonPbTotal, pbAmount)).toFixed(2));
 
                 if (opbContrib > 0) {
                     // How much OPB (opening_balance) is still outstanding after other sources?
@@ -1103,7 +1204,7 @@ router.delete('/payments/:payment_id', async (req, res) => {
                         [slipData.family_id]
                     );
                     if (famRes.rows.length > 0) {
-                        const opbTotal  = parseFloat(famRes.rows[0].opb_total);
+                        const opbTotal = parseFloat(famRes.rows[0].opb_total);
                         const opbRemain = Math.max(0, opbTotal - opbFromOtherSources);
                         const opbSettle = parseFloat(Math.min(opbContrib, opbRemain).toFixed(2));
 
@@ -1138,10 +1239,10 @@ router.delete('/payments/:payment_id', async (req, res) => {
                         `SELECT COALESCE(SUM(amount_paid), 0) AS total FROM fee_payments WHERE slip_id = $1`,
                         [old.slip_id]
                     );
-                    const correctPaid   = parseFloat(actualRes.rows[0].total);
-                    const oldTotal      = parseFloat(old.total_amount);
+                    const correctPaid = parseFloat(actualRes.rows[0].total);
+                    const oldTotal = parseFloat(old.total_amount);
                     const correctStatus = correctPaid >= oldTotal ? 'paid'
-                                       : correctPaid > 0         ? 'partial' : 'unpaid';
+                        : correctPaid > 0 ? 'partial' : 'unpaid';
                     await client.query(
                         `UPDATE monthly_fee_slips SET paid_amount=$1, status=$2 WHERE slip_id=$3`,
                         [correctPaid, correctStatus, old.slip_id]
@@ -1168,7 +1269,7 @@ router.delete('/class/:class_id/month/:month/year/:year', async (req, res) => {
         await client.query('BEGIN');
 
         const mArr = month.split(',').map(Number);
-        
+
         // Fetch all slips for this class+month+year
         const all = await client.query(
             `SELECT slip_id, status FROM monthly_fee_slips
@@ -1176,8 +1277,8 @@ router.delete('/class/:class_id/month/:month/year/:year', async (req, res) => {
             [class_id, mArr, year]
         );
 
-        const paidSlips    = all.rows.filter(r => r.status === 'paid');
-        const deleteable   = all.rows.filter(r => r.status !== 'paid');
+        const paidSlips = all.rows.filter(r => r.status === 'paid');
+        const deleteable = all.rows.filter(r => r.status !== 'paid');
 
         if (deleteable.length === 0) {
             await client.query('ROLLBACK');
@@ -1220,7 +1321,7 @@ router.delete('/class/:class_id/month/:month/year/:year', async (req, res) => {
     } finally { client.release(); }
 });
 
-// PUT /fee-slips/:id  — edit slip line items and due date
+// PUT /fee-slips/:id  edit slip line items and due date
 router.put('/:id', async (req, res) => {
     const client = await pool.connect();
     try {
@@ -1255,7 +1356,7 @@ router.get('/family-summary/:student_id', async (req, res) => {
         const { student_id } = req.params;
         const famRes = await pool.query('SELECT family_id FROM students WHERE student_id = $1', [student_id]);
         if (famRes.rows.length === 0) return res.status(404).json({ error: 'Student not found' });
-        
+
         const family_id = famRes.rows[0].family_id;
         if (!family_id) return res.json({ slips: [] });
 
@@ -1263,6 +1364,9 @@ router.get('/family-summary/:student_id', async (req, res) => {
             SELECT 
                 mfs.slip_id, mfs.month, mfs.year, mfs.total_amount, mfs.paid_amount, mfs.status,
                 s.first_name, s.last_name, s.admission_no,
+                (
+                    SELECT MAX(fp.payment_date) FROM fee_payments fp WHERE fp.slip_id = mfs.slip_id
+                ) as last_payment_date,
                 (
                     SELECT json_agg(json_build_object('head_name', sli.head_name, 'amount', sli.amount))
                     FROM slip_line_items sli WHERE sli.slip_id = mfs.slip_id
@@ -1274,7 +1378,7 @@ router.get('/family-summary/:student_id', async (req, res) => {
         `;
 
         const result = await pool.query(query, [family_id]);
-        
+
         const summary = {};
         result.rows.forEach(row => {
             const myKey = row.month + '-' + row.year;
@@ -1285,17 +1389,27 @@ router.get('/family-summary/:student_id', async (req, res) => {
                     family_total_billed: 0,
                     family_total_paid: 0,
                     status: 'unpaid',
+                    last_submission_date: null,
                     students: []
                 };
             }
             summary[myKey].family_total_billed += Number(row.total_amount);
             summary[myKey].family_total_paid += Number(row.paid_amount);
+
+            if (row.last_payment_date) {
+                if (!summary[myKey].last_submission_date || new Date(row.last_payment_date) > new Date(summary[myKey].last_submission_date)) {
+                    summary[myKey].last_submission_date = row.last_payment_date;
+                }
+            }
+
             summary[myKey].students.push({
+                slip_id: row.slip_id,
                 name: row.first_name + ' ' + row.last_name,
                 admission_no: row.admission_no,
                 billed: Number(row.total_amount),
                 paid: Number(row.paid_amount),
                 status: row.status,
+                last_payment_date: row.last_payment_date,
                 heads: row.heads || []
             });
         });
@@ -1306,7 +1420,7 @@ router.get('/family-summary/:student_id', async (req, res) => {
             else m.status = 'partial';
         });
 
-        const slips = Object.values(summary).sort((a,b) => {
+        const slips = Object.values(summary).sort((a, b) => {
             if (b.year !== a.year) return b.year - a.year;
             return b.month - a.month;
         });
@@ -1319,6 +1433,3 @@ router.get('/family-summary/:student_id', async (req, res) => {
 });
 
 module.exports = router;
-
-
-

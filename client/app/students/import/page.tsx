@@ -113,7 +113,7 @@ export default function ImportStudents() {
         setLoading(true);
         const toastId = toast.loading("Importing students...");
         try {
-            const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "https://shmool.onrender.com"}` + '/students/bulk', {
+            const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "https://shmool.onrender.com"}/students/bulk`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ students: excelData })
@@ -152,7 +152,7 @@ export default function ImportStudents() {
     const fetchDuplicates = async () => {
         setLoadingDuplicates(true);
         try {
-            const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "https://shmool.onrender.com"}` + '/students/families/potential-duplicates');
+            const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "https://shmool.onrender.com"}/students/families/potential-duplicates`);
             if (res.ok) {
                 const data = await res.json();
                 setDuplicates(data);
@@ -169,7 +169,7 @@ export default function ImportStudents() {
         if (!confirm(`Merge ${family2} into ${family1} as ${relationType}?`)) return;
         const toastId = toast.loading('Merging families...');
         try {
-            const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "https://shmool.onrender.com"}` + '/students/families/merge', {
+            const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "https://shmool.onrender.com"}/students/families/merge`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -220,7 +220,7 @@ export default function ImportStudents() {
         }
         const toastId = toast.loading('Linking students...');
         try {
-            const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "https://shmool.onrender.com"}` + '/students/families/manual-link', {
+            const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "https://shmool.onrender.com"}/students/families/manual-link`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({

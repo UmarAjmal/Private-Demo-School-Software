@@ -27,14 +27,17 @@ export default function AnimatedBackground() {
             speedX: number;
             speedY: number;
             opacity: number;
+            color: string;
 
             constructor() {
                 this.x = Math.random() * canvas!.width;
                 this.y = Math.random() * canvas!.height;
-                this.size = Math.random() * 2 + 0.5;
-                this.speedX = (Math.random() - 0.5) * 0.5;
-                this.speedY = (Math.random() - 0.5) * 0.5;
-                this.opacity = Math.random() * 0.5 + 0.1;
+                this.size = Math.random() * 2.2 + 0.8;
+                this.speedX = (Math.random() - 0.5) * 0.4;
+                this.speedY = (Math.random() - 0.5) * 0.4;
+                this.opacity = Math.random() * 0.5 + 0.2;
+                // Dual brand accent colors (orange & teal)
+                this.color = Math.random() > 0.4 ? '254, 127, 45' : '33, 94, 97';
             }
 
             update() {
@@ -49,16 +52,19 @@ export default function AnimatedBackground() {
 
             draw() {
                 if (!ctx) return;
-                ctx.fillStyle = `rgba(254, 127, 45, ${this.opacity})`;
                 ctx.beginPath();
                 ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+                ctx.fillStyle = `rgba(${this.color}, ${this.opacity})`;
+                ctx.shadowBlur = 8;
+                ctx.shadowColor = `rgba(${this.color}, 0.5)`;
                 ctx.fill();
+                ctx.shadowBlur = 0; // Reset shadow blur for performance
             }
         }
 
         const initParticles = () => {
             particles = [];
-            const particleCount = Math.floor(window.innerWidth / 15);
+            const particleCount = Math.min(Math.floor(window.innerWidth / 12), 100);
             for (let i = 0; i < particleCount; i++) {
                 particles.push(new Particle());
             }
@@ -67,11 +73,18 @@ export default function AnimatedBackground() {
         const animate = () => {
             ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-            // Create gentle gradient background
-            const gradient = ctx.createLinearGradient(0, 0, canvas.width, canvas.height);
-            gradient.addColorStop(0, 'rgba(33, 94, 97, 0.15)');
-            gradient.addColorStop(1, 'rgba(35, 61, 77, 0.3)');
-            ctx.fillStyle = gradient;
+            // Rich ambient gradient background overlay
+            const bgGrad = ctx.createRadialGradient(
+                canvas.width / 2,
+                canvas.height / 2,
+                100,
+                canvas.width / 2,
+                canvas.height / 2,
+                Math.max(canvas.width, canvas.height)
+            );
+            bgGrad.addColorStop(0, 'rgba(21, 39, 51, 0.4)');
+            bgGrad.addColorStop(1, 'rgba(10, 19, 26, 0.75)');
+            ctx.fillStyle = bgGrad;
             ctx.fillRect(0, 0, canvas.width, canvas.height);
 
             particles.forEach((particle) => {
@@ -79,17 +92,18 @@ export default function AnimatedBackground() {
                 particle.draw();
             });
 
-            // Draw connecting lines
+            // Draw soft connecting web lines between nearby particles
             for (let i = 0; i < particles.length; i++) {
-                for (let j = i; j < particles.length; j++) {
+                for (let j = i + 1; j < particles.length; j++) {
                     const dx = particles[i].x - particles[j].x;
                     const dy = particles[i].y - particles[j].y;
                     const distance = Math.sqrt(dx * dx + dy * dy);
 
-                    if (distance < 120) {
+                    if (distance < 130) {
+                        const alpha = (1 - distance / 130) * 0.15;
                         ctx.beginPath();
-                        ctx.strokeStyle = `rgba(254, 127, 45, ${0.1 - distance / 1200})`;
-                        ctx.lineWidth = 0.5;
+                        ctx.strokeStyle = `rgba(254, 127, 45, ${alpha})`;
+                        ctx.lineWidth = 0.6;
                         ctx.moveTo(particles[i].x, particles[i].y);
                         ctx.lineTo(particles[j].x, particles[j].y);
                         ctx.stroke();

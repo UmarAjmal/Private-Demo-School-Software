@@ -50,8 +50,8 @@ router.put('/years/configure/:id', async (req, res) => {
         }
 
         if (yearCheck.rows[0].status !== 'upcoming') {
-            return res.status(400).json({ 
-                error: 'Can only configure upcoming years. This year is already ' + yearCheck.rows[0].status 
+            return res.status(400).json({
+                error: 'Can only configure upcoming years. This year is already ' + yearCheck.rows[0].status
             });
         }
 
@@ -74,7 +74,7 @@ router.put('/years/configure/:id', async (req, res) => {
 // Activate Year (make a configured year active)
 router.put('/years/activate/:id', async (req, res) => {
     const client = await pool.connect();
-    
+
     try {
         const { id } = req.params;
 
@@ -92,8 +92,8 @@ router.put('/years/activate/:id', async (req, res) => {
 
         // Validation: Must be configured
         if (!year.is_configured) {
-            return res.status(400).json({ 
-                error: 'Year must be configured before activation. Please set dates and terms first.' 
+            return res.status(400).json({
+                error: 'Year must be configured before activation. Please set dates and terms first.'
             });
         }
 
@@ -104,8 +104,8 @@ router.put('/years/activate/:id', async (req, res) => {
         );
 
         if (parseInt(termsCheck.rows[0].count) === 0) {
-            return res.status(400).json({ 
-                error: 'Please configure at least one term before activating the year' 
+            return res.status(400).json({
+                error: 'Please configure at least one term before activating the year'
             });
         }
 
@@ -160,7 +160,11 @@ router.post('/terms', async (req, res) => {
     try {
         const { academic_year_id, terms } = req.body;
 
-        // 1. Check if year is completed (outside transaction — read-only check)
+        if (!academic_year_id || !Array.isArray(terms)) {
+            return res.status(400).json({ error: "Invalid request data. academic_year_id and terms array are required." });
+        }
+
+        // 1. Check if year is completed (outside transaction read-only check)
         const yearCheck = await client.query("SELECT status FROM academic_years WHERE id = $1", [academic_year_id]);
         if (yearCheck.rows.length === 0) return res.status(404).json({ error: 'Year not found' });
 

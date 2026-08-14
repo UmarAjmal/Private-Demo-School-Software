@@ -1,0 +1,378 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <title>Fee Receipt</title>
+  <style>
+    @page {
+      margin: 0;
+    }
+
+    html,
+    body {
+      margin: 0;
+      padding: 0;
+      width: 72mm;
+      box-sizing: border-box;
+      font-family: 'Times New Roman', Times, serif;
+      color: #000;
+    }
+
+    .voucher {
+      width: 100%;
+      padding: 3mm;
+      display: flex;
+      flex-direction: column;
+      box-sizing: border-box;
+      border: 2px solid #000;
+      border-radius: 4mm;
+      position: relative;
+    }
+
+    .voucher::before {
+      content: "";
+      position: absolute;
+      inset: 2px;
+      border: 1px solid #000;
+      border-radius: 3.3mm;
+      pointer-events: none;
+    }
+
+    .header {
+      display: flex;
+      align-items: center;
+      gap: 2mm;
+      margin-bottom: 2mm;
+    }
+
+    .logo-box {
+      width: 16mm;
+      height: 16mm;
+      border: 1.2px solid #000;
+      border-radius: 2mm;
+      flex-shrink: 0;
+      background-size: cover;
+      background-position: center;
+    }
+
+    .school-name {
+      font-size: 11pt;
+      font-weight: bold;
+      line-height: 1.25;
+      text-transform: uppercase;
+    }
+
+    .address-block {
+      text-align: center;
+      font-size: 8pt;
+      margin-bottom: 1mm;
+      line-height: 1.3;
+    }
+
+    .address-block p {
+      margin: 0;
+    }
+
+    hr {
+      border: 0;
+      border-top: 1px dashed #000;
+      margin: 1.5mm 0;
+    }
+
+    .voucher-title {
+      text-align: center;
+      font-size: 10.5pt;
+      font-weight: bold;
+      text-transform: uppercase;
+      margin: 1mm 0;
+    }
+
+    .info {
+      font-size: 8pt;
+      margin-bottom: 2mm;
+      line-height: 1.4;
+    }
+
+    .info-row {
+      display: flex;
+      align-items: baseline;
+      gap: 2mm;
+      white-space: nowrap;
+      margin-bottom: 0.5mm;
+    }
+
+    .info-row .voucher-no {
+      flex-shrink: 0;
+    }
+
+    .info-row .family-id {
+      flex: 1 1 auto;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      text-align: right;
+    }
+
+    .info-row2 {
+      margin-bottom: 0.5mm;
+    }
+
+    .section-label {
+      font-size: 9.5pt;
+      font-weight: bold;
+      margin: 3mm 0 1mm;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 8pt;
+      margin-bottom: 3mm;
+      table-layout: fixed;
+      word-wrap: break-word;
+    }
+
+    th,
+    td {
+      border: 1px solid #000;
+      padding: 1.2mm 0.8mm;
+      text-align: center;
+    }
+
+    th {
+      font-weight: bold;
+    }
+
+    .students th:nth-child(1),
+    .students td:nth-child(1) {
+      text-align: left;
+    }
+
+    .students th:nth-child(2),
+    .students td:nth-child(2) {
+      text-align: left;
+    }
+
+    .details th:nth-child(1),
+    .details td:nth-child(1) {
+      width: 12%;
+    }
+
+    .details th:nth-child(2),
+    .details td:nth-child(2) {
+      text-align: left;
+    }
+
+    .details th:nth-child(3),
+    .details td:nth-child(3) {
+      text-align: right;
+    }
+
+    .details tr.subtotal-row td {
+      font-weight: bold;
+    }
+
+    .details tr.divider-row td {
+      font-weight: bold;
+      border-top: 2px solid #000;
+    }
+
+    .details tr.bold-row td {
+      font-weight: bold;
+    }
+
+    .details tr.divider-row td:first-child,
+    .details tr.bold-row td:first-child {
+      text-align: left;
+    }
+
+    .thank-you {
+      text-align: center;
+      font-size: 9.5pt;
+      font-weight: bold;
+      margin-top: 3mm;
+      margin-bottom: 2mm;
+    }
+
+    .spacer {
+      flex-grow: 1;
+    }
+  </style>
+</head>
+
+<body>
+  <div class="voucher">
+    <div class="header">
+      <div class="logo-box" id="logoBox"></div>
+      <div class="school-name" id="schoolNameBlock"></div>
+    </div>
+    <div class="address-block" id="addressBlock"></div>
+    <hr>
+    <div class="voucher-title">Fee Receipt</div>
+    <hr>
+    <div class="info" id="infoBlock"></div>
+
+    <div class="section-label">Students Details</div>
+    <table class="students">
+      <thead>
+        <tr>
+          <th>Student Name</th>
+          <th>Father Name</th>
+          <th>Class (Sec)</th>
+        </tr>
+      </thead>
+      <tbody id="studentBody"></tbody>
+    </table>
+
+    <div class="section-label">Fee Details</div>
+    <table class="details">
+      <thead>
+        <tr>
+          <th>Sr.#</th>
+          <th>Fee Description</th>
+          <th>Amount</th>
+        </tr>
+      </thead>
+      <tbody id="feeBody"></tbody>
+    </table>
+
+    <div class="thank-you">Thank You</div>
+    <div class="spacer"></div>
+  </div>
+
+  <script>
+    /* =========================================================
+       DATA — replace this block with your real data source.
+       Add/remove entries in `students` and `feeItems` and both
+       tables grow or shrink automatically — 1 student = 1 row,
+       9 students = 9 rows. Same for fee items. The whole voucher
+       also grows/shrinks with them (no fixed height anywhere).
+       Set school.logo_url to your logo image path/URL, or leave
+       empty to keep an empty box like in the sample.
+    
+       DEMO BELOW shows 9 students + an Exam Fee head added, so
+       you can see exactly how both tables and the voucher grow.
+       Replace with your real data when wiring this up.
+       ========================================================= */
+
+    var school = {
+      school_name: "Falcon School System\nVehari",
+      logo_url: "",              // e.g. "logo.png" — leave blank for empty box
+      school_address: "83/M Madina Colony Vehari",
+      phone1: "0300-7730141",
+      phone2: "0308-7696430",
+      phone3: "067-3366383"
+    };
+
+    var slip = {
+      slip_id: 105,
+      family_id: "F-2201",
+      submission_date: new Date()
+    };
+
+    // DEMO: 9 students — table below will show 9 rows automatically
+    var students = [
+      { name: "Kamran Yousaf", father_name: "Yousaf Iqbal", class: "8th (A)" },
+      { name: "Ali Raza", father_name: "Ahmed Raza", class: "5th (B)" },
+      { name: "Sara Khan", father_name: "Imran Khan", class: "3rd (A)" },
+      { name: "Bilal Ahmed", father_name: "Nasir Ahmed", class: "6th (C)" },
+      { name: "Ayesha Noor", father_name: "Zafar Iqbal", class: "2nd (A)" },
+      { name: "Hamza Tariq", father_name: "Tariq Mehmood", class: "7th (A)" },
+      { name: "Iqra Fatima", father_name: "Shahid Bashir", class: "4th (B)" },
+      { name: "Usman Ali", father_name: "Ali Hassan", class: "1st (A)" },
+      { name: "Zainab Malik", father_name: "Malik Waseem", class: "8th (B)" }
+      // add more students here — table grows automatically
+    ];
+
+    // DEMO: Exam Fee added as a new fee head — table below will add its own row
+    var feeItems = [
+      { desc: "Monthly Fee", amount: 8000 },
+      { desc: "Previous Dues", amount: 1200 },
+      { desc: "Exam Fee", amount: 1500 }
+      // add/remove fee heads here — table adjusts automatically
+    ];
+
+    // Amount actually received in this transaction
+    var receivingAmount = 5000;
+
+    /* ========================================================= */
+
+    function zeroPad(n) { return String(n).padStart(5, "0"); }
+    function fmtD(d) {
+      var dt = new Date(d);
+      return ("0" + dt.getDate()).slice(-2) + "-" + ("0" + (dt.getMonth() + 1)).slice(-2) + "-" + dt.getFullYear();
+    }
+    function fmtMoney(n) {
+      n = Number(n) || 0;
+      return n.toLocaleString("en-PK") + "/-";
+    }
+
+    function render() {
+      var logoBox = document.getElementById("logoBox");
+      if (school.logo_url) {
+        logoBox.style.backgroundImage = "url('" + school.logo_url + "')";
+        logoBox.style.border = "none";
+      }
+
+      document.getElementById("schoolNameBlock").innerHTML =
+        (school.school_name || "SCHOOL NAME").split("\n").join("<br>");
+
+      var phones = [school.phone1, school.phone2, school.phone3].filter(Boolean).join(" ; ");
+      document.getElementById("addressBlock").innerHTML =
+        '<p>' + (school.school_address || "") + '</p><p>' + phones + '</p>';
+
+      document.getElementById("infoBlock").innerHTML =
+        '<div class="info-row">' +
+        '<div class="voucher-no">Voucher No: <strong><u>' + zeroPad(slip.slip_id) + '</u></strong></div>' +
+        '<div class="family-id">Family ID: <strong><u>' + (slip.family_id || "\u2014") + '</u></strong></div>' +
+        '</div>' +
+        '<div class="info-row2">Fee Submission Date: <strong><u>' + fmtD(slip.submission_date) + '</u></strong></div>';
+
+      // Students Details — exactly one <tr> per student, no blank filler rows
+      var studentRows = "";
+      students.forEach(function (stu) {
+        studentRows +=
+          '<tr>' +
+          '<td>' + stu.name + '</td>' +
+          '<td>' + (stu.father_name || "") + '</td>' +
+          '<td>' + (stu.class || "") + '</td>' +
+          '</tr>';
+      });
+      document.getElementById("studentBody").innerHTML = studentRows;
+
+      // Fee Details — one row per fee head (with Sr.#), then Total Payable (still
+      // numbered, above the bold divider), then Receiving Amount / Remaining
+      // Balance below the divider with NO Sr.# — those two cells are merged.
+      var feeRows = "";
+      var totalPayable = 0;
+      var srNo = 0;
+
+      feeItems.forEach(function (item) {
+        srNo++;
+        totalPayable += Number(item.amount) || 0;
+        feeRows +=
+          '<tr>' +
+          '<td>' + srNo + '</td>' +
+          '<td>' + item.desc + '</td>' +
+          '<td>' + fmtMoney(item.amount) + '</td>' +
+          '</tr>';
+      });
+
+      srNo++;
+      feeRows += '<tr class="subtotal-row"><td>' + srNo + '</td><td>Total Payable</td><td>' + fmtMoney(totalPayable) + '</td></tr>';
+
+      var remainingBalance = totalPayable - (Number(receivingAmount) || 0);
+
+      feeRows +=
+        '<tr class="divider-row"><td colspan="2">Receiving Amount</td><td>' + fmtMoney(receivingAmount) + '</td></tr>' +
+        '<tr class="bold-row"><td colspan="2">Remaining Balance</td><td>' + fmtMoney(remainingBalance) + '</td></tr>';
+
+      document.getElementById("feeBody").innerHTML = feeRows;
+    }
+
+    render();
+  </script>
+</body>
+
+</html>

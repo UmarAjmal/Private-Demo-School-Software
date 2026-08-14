@@ -30,12 +30,12 @@ export default function StaffAttendancePage() {
     const [saving, setSaving] = useState(false);
     const { hasPermission, user } = useAuth();
 
-    const isAdmin = user?.role_name === 'Administrator';
+    const isAdmin = (user?.role_level || 0) >= 90;
     const canEditLocked = isAdmin || hasPermission('attendance.edit_locked', 'write');
     const canMarkAdvance = isAdmin || hasPermission('attendance.mark_advance', 'write');
 
     useEffect(() => {
-        fetch(`${process.env.NEXT_PUBLIC_API_URL || "https://shmool.onrender.com"}` + '/hrm/departments').then(r => r.json()).then(setDepartments).catch(() => { });
+        fetch(`${process.env.NEXT_PUBLIC_API_URL || "https://shmool.onrender.com"}/hrm/departments`).then(r => r.json()).then(setDepartments).catch(() => { });
     }, []);
 
     const loadAttendance = useCallback(async () => {
@@ -89,7 +89,7 @@ export default function StaffAttendancePage() {
         try {
             // Save ALL staff regardless of lock status
             const records = staff.map(e => ({ employee_id: e.employee_id, status: statuses[e.employee_id] || 'Present' }));
-            const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "https://shmool.onrender.com"}` + '/attendance/staff/daily', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ date, records }) });
+            const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "https://shmool.onrender.com"}/attendance/staff/daily`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ date, records }) });
             const d = await res.json();
             if (res.ok) {
                 // Lock all rows after save

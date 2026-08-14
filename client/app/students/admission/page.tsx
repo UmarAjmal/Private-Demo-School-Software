@@ -17,6 +17,11 @@ export default function NewAdmission() {
     const [searchingSiblings, setSearchingSiblings] = useState(false);
     const [familyFeeInfo, setFamilyFeeInfo] = useState<{ family_fee: number; family_size: number } | null>(null);
 
+    // Father Auto-Fetch & Suggestion States
+    const [fatherSuggestions, setFatherSuggestions] = useState<any[]>([]);
+    const [showFatherSuggestions, setShowFatherSuggestions] = useState(false);
+    const [searchingFathers, setSearchingFathers] = useState(false);
+
     // Initial State
     const [guardianType, setGuardianType] = useState('Father'); // Father, Mother, Other
     const [form, setForm] = useState({
@@ -30,7 +35,7 @@ export default function NewAdmission() {
         // Personal
         first_name: '',
         last_name: '',
-        gender: 'Male',
+        gender: '',
         dob: '',
         cnic_bform: '',
         religion: '',
@@ -142,14 +147,14 @@ export default function NewAdmission() {
 
     const fetchClasses = async () => {
         try {
-            const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "https://shmool.onrender.com"}` + '/academic');
+            const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "https://shmool.onrender.com"}/academic`);
             if (res.ok) setClasses(await res.json());
         } catch (e) { console.error(e); }
     };
 
     const fetchSections = async (classId: string) => {
         try {
-            const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "https://shmool.onrender.com"}` + '/academic/sections');
+            const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "https://shmool.onrender.com"}/academic/sections`);
             if (res.ok) {
                 const allSections = await res.json();
                 setSections(allSections.filter((s: any) => s.class_id === Number(classId)));
@@ -187,17 +192,9 @@ export default function NewAdmission() {
             return;
         }
 
-        // Auto-detect relation type based on father name
-        let detectedRelation: 'blood' | 'cousin' = 'blood';
-        if (form.father_name && sibling.father_name) {
-            const sameFather = form.father_name.trim().toLowerCase() === sibling.father_name.trim().toLowerCase();
-            detectedRelation = sameFather ? 'blood' : 'cousin';
-        }
-
         // Add to selected siblings array
         const newSibling = {
             ...sibling,
-            relation_type: detectedRelation,
             isExpanded: true // New sibling is expanded by default
         };
 
@@ -206,6 +203,22 @@ export default function NewAdmission() {
         setSearchResults([]);
         setSiblingSearch('');
 
+        // Auto-fill parent & contact details into admission form
+        setForm(f => ({
+            ...f,
+            father_name: f.father_name || sibling.father_name || '',
+            father_phone: f.father_phone || sibling.father_phone || '',
+            father_cnic: f.father_cnic || sibling.father_cnic || '',
+            father_occupation: f.father_occupation || sibling.father_occupation || '',
+            mother_name: f.mother_name || sibling.mother_name || '',
+            mother_phone: f.mother_phone || sibling.mother_phone || '',
+            mother_cnic: f.mother_cnic || sibling.mother_cnic || '',
+            mother_occupation: f.mother_occupation || sibling.mother_occupation || '',
+            current_address: f.current_address || sibling.current_address || '',
+            permanent_address: f.permanent_address || sibling.permanent_address || '',
+            city: f.city || sibling.city || ''
+        }));
+
         // If this is the first sibling, set family fee info
         if (selectedSiblings.length === 0 && sibling.family_id) {
             const existingFee = parseFloat(sibling.family_fee) || parseFloat(sibling.monthly_fee) || 0;
@@ -213,16 +226,85 @@ export default function NewAdmission() {
             setForm(f => ({ ...f, family_fee: existingFee > 0 ? String(existingFee) : f.family_fee }));
         }
 
-        // If blood sibling and first one, pre-fill parent details
-        if (detectedRelation === 'blood' && selectedSiblings.length === 0) {
-            setForm(f => ({
-                ...f,
-                father_name: sibling.father_name || f.father_name,
-                mother_name: sibling.mother_name || f.mother_name,
-            }));
+        notify.success(`Sibling added: ${sibling.first_name} ${sibling.last_name}`);
+    };
+
+    const searchFatherSuggestions = async (query: string) => {
+        if (!query || query.trim().length < 2) {
+            setFatherSuggestions([]);
+            setShowFatherSuggestions(false);
+            return;
         }
 
-        notify.success(`Sibling added: ${sibling.first_name} ${sibling.last_name}`);
+        const qLower = query.trim().toLowerCase();
+        setSearchingFathers(true);
+        try {
+            const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "https://shmool.onrender.com"}/students/search-siblings?query=${encodeURIComponent(query)}`);
+            if (res.ok) {
+                const results = await res.json();
+                const fatherMap = new Map();
+
+                // Check matched selected siblings first
+                selectedSiblings.forEach(s => {
+                    if (s.father_name) {
+                        const key = (s.father_name + '_' + (s.father_phone || '')).toLowerCase();
+                        fatherMap.set(key, s);
+                    }
+                });
+
+                results.forEach((r: any) => {
+                    if (r.father_name) {
+                        const key = (r.father_name + '_' + (r.father_phone || '')).toLowerCase();
+                        if (!fatherMap.has(key)) {
+                            fatherMap.set(key, r);
+                        }
+                    }
+                });
+
+                const list = Array.from(fatherMap.values());
+                setFatherSuggestions(list);
+                setShowFatherSuggestions(list.length > 0);
+
+                // Auto-fill phone & details if exact father name match found and form phone is empty
+                const exactMatch = list.find(item => item.father_name && item.father_name.trim().toLowerCase() === qLower);
+                if (exactMatch && exactMatch.father_phone) {
+                    setForm(f => ({
+                        ...f,
+                        father_phone: f.father_phone || exactMatch.father_phone || '',
+                        father_cnic: f.father_cnic || exactMatch.father_cnic || '',
+                        father_occupation: f.father_occupation || exactMatch.father_occupation || '',
+                        mother_name: f.mother_name || exactMatch.mother_name || '',
+                        mother_phone: f.mother_phone || exactMatch.mother_phone || '',
+                        mother_cnic: f.mother_cnic || exactMatch.mother_cnic || '',
+                        mother_occupation: f.mother_occupation || exactMatch.mother_occupation || '',
+                        current_address: f.current_address || exactMatch.current_address || '',
+                        city: f.city || exactMatch.city || ''
+                    }));
+                }
+            }
+        } catch (err) {
+            console.error('Error searching father suggestions:', err);
+        } finally {
+            setSearchingFathers(false);
+        }
+    };
+
+    const applyFatherDetails = (parent: any) => {
+        setForm(f => ({
+            ...f,
+            father_name: parent.father_name || f.father_name,
+            father_phone: parent.father_phone || f.father_phone || '',
+            father_cnic: parent.father_cnic || f.father_cnic || '',
+            father_occupation: parent.father_occupation || f.father_occupation || '',
+            mother_name: parent.mother_name || f.mother_name || '',
+            mother_phone: parent.mother_phone || f.mother_phone || '',
+            mother_cnic: parent.mother_cnic || f.mother_cnic || '',
+            mother_occupation: parent.mother_occupation || f.mother_occupation || '',
+            current_address: parent.current_address || f.current_address || '',
+            city: parent.city || f.city || ''
+        }));
+        setShowFatherSuggestions(false);
+        toast.success(`Auto-filled parent details for ${parent.father_name}`);
     };
 
     const removeSibling = (index: number) => {
@@ -241,21 +323,7 @@ export default function NewAdmission() {
         setSelectedSiblings(updated);
     };
 
-    const updateSiblingRelationType = (index: number, relationType: 'blood' | 'cousin') => {
-        const updated = [...selectedSiblings];
-        updated[index].relation_type = relationType;
-        setSelectedSiblings(updated);
 
-        // If first blood sibling, update parent details
-        if (relationType === 'blood' && index === 0) {
-            const sibling = updated[index];
-            setForm(f => ({
-                ...f,
-                father_name: sibling.father_name || f.father_name,
-                mother_name: sibling.mother_name || f.mother_name,
-            }));
-        }
-    };
 
     const handleClassChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
         const val = e.target.value;
@@ -272,20 +340,33 @@ export default function NewAdmission() {
         try {
             const formData = new FormData();
 
-            // Append Text Fields
+            // Append Text Fields - Handle optional date fields properly
             Object.keys(form).forEach(key => {
-                const value = (form as any)[key];
+                let value = (form as any)[key];
+
+                // For date fields (dob), only append if not empty
+                // This prevents "invalid input syntax for type date" error
+                if (key === 'dob' && (!value || value.trim() === '')) {
+                    return; // Skip empty date fields
+                }
+
                 formData.append(key, value);
             });
 
             // Append Sibling Information
             if (selectedSiblings && selectedSiblings.length > 0) {
+                const currentFatherName = (form.father_name || '').trim().toLowerCase();
                 // Send as JSON array
                 formData.append('siblings', JSON.stringify(
-                    selectedSiblings.map(s => ({
-                        sibling_id: s.student_id,
-                        relation_type: s.relation_type
-                    }))
+                    selectedSiblings.map(s => {
+                        const siblingFatherName = (s.father_name || '').trim().toLowerCase();
+                        const dynamicRelation = (currentFatherName !== '' && siblingFatherName !== '' && currentFatherName === siblingFatherName) ? 'blood' : 'cousin';
+
+                        return {
+                            sibling_id: s.student_id,
+                            relation_type: dynamicRelation
+                        };
+                    })
                 ));
             }
 
@@ -299,7 +380,7 @@ export default function NewAdmission() {
                 }
             }
 
-            const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "https://shmool.onrender.com"}` + '/students', {
+            const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "https://shmool.onrender.com"}/students`, {
                 method: 'POST',
                 // HEADERS MUST NOT BE SET MANUALLY FOR MULTIPART
                 body: formData
@@ -309,13 +390,55 @@ export default function NewAdmission() {
 
             if (res.ok) {
                 toast.update(toastId, { render: `Admission Successful! ID: ${data.admission_no}`, type: "success", isLoading: false, autoClose: 5000 });
-                // Reset Forms
+                // Reset ALL form fields
                 setForm({
-                    ...form,
-                    first_name: '', last_name: '',
-                    father_name: '', mother_name: '', guardian_name: '',
-                    roll_no: '', mobile_no: ''
+                    roll_no: '',
+                    class_id: '',
+                    section_id: '',
+                    admission_date: new Date().toISOString().split('T')[0],
+                    category: 'Normal',
+                    first_name: '',
+                    last_name: '',
+                    gender: '',
+                    dob: '',
+                    cnic_bform: '',
+                    religion: '',
+                    blood_group: '',
+                    has_disability: false,
+                    disability_details: '',
+                    mobile_no: '',
+                    email: '',
+                    current_address: '',
+                    permanent_address: '',
+                    city: '',
+                    father_name: '',
+                    father_phone: '',
+                    father_cnic: '',
+                    father_occupation: '',
+                    mother_name: '',
+                    mother_phone: '',
+                    mother_cnic: '',
+                    mother_occupation: '',
+                    is_orphan: false,
+                    guardian_name: '',
+                    guardian_relation: '',
+                    guardian_phone: '',
+                    guardian_cnic: '',
+                    guardian_address: '',
+                    monthly_fee: '',
+                    family_fee: '',
+                    admission_fee: '',
+                    other_charges: '',
+                    opening_balance: ''
                 });
+                // Reset sibling selection
+                setHasSibling(false);
+                setSelectedSiblings([]);
+                setSiblingSearch('');
+                setSearchResults([]);
+                setFamilyFeeInfo(null);
+                setGuardianType('Father');
+                // Reset files
                 setImageFile(null);
                 setDocumentFiles(null);
             } else {
@@ -438,11 +561,12 @@ export default function NewAdmission() {
                                             value={form.dob} onChange={e => setForm({ ...form, dob: e.target.value })} />
                                     </div>
                                     <div className="col-md-4">
-                                        <label className="form-label fw-bold">Gender</label>
-                                        <select className="form-select" value={form.gender} onChange={e => setForm({ ...form, gender: e.target.value })}>
-                                            <option>Male</option>
-                                            <option>Female</option>
-                                            <option>Other</option>
+                                        <label className="form-label fw-bold">Gender <span className="text-danger">*</span></label>
+                                        <select className="form-select" required value={form.gender} onChange={e => setForm({ ...form, gender: e.target.value })}>
+                                            <option value="">-- Select Gender --</option>
+                                            <option value="Male">Male</option>
+                                            <option value="Female">Female</option>
+                                            <option value="Other">Other</option>
                                         </select>
                                     </div>
                                     <div className="col-md-4">
@@ -677,6 +801,34 @@ export default function NewAdmission() {
                                                                     <strong>{sibling.father_name || 'N/A'}</strong>
                                                                 </div>
                                                                 <div className="col-md-6">
+                                                                    <small className="text-muted d-block">Mother Name:</small>
+                                                                    <strong>{sibling.mother_name || 'N/A'}</strong>
+                                                                </div>
+                                                                <div className="col-md-6">
+                                                                    <small className="text-muted d-block">Father Phone:</small>
+                                                                    <strong>{sibling.father_phone || 'N/A'}</strong>
+                                                                </div>
+                                                                <div className="col-md-6">
+                                                                    <small className="text-muted d-block">Mother Phone:</small>
+                                                                    <strong>{sibling.mother_phone || 'N/A'}</strong>
+                                                                </div>
+                                                                <div className="col-md-6">
+                                                                    <small className="text-muted d-block">Father CNIC:</small>
+                                                                    <strong>{sibling.father_cnic || 'N/A'}</strong>
+                                                                </div>
+                                                                <div className="col-md-6">
+                                                                    <small className="text-muted d-block">Mother CNIC:</small>
+                                                                    <strong>{sibling.mother_cnic || 'N/A'}</strong>
+                                                                </div>
+                                                                <div className="col-12">
+                                                                    <small className="text-muted d-block">Current Address:</small>
+                                                                    <strong>{sibling.current_address || 'N/A'}</strong>
+                                                                </div>
+                                                                <div className="col-md-6">
+                                                                    <small className="text-muted d-block">City:</small>
+                                                                    <strong>{sibling.city || 'N/A'}</strong>
+                                                                </div>
+                                                                <div className="col-md-6">
                                                                     <small className="text-muted d-block">Class & Section:</small>
                                                                     <strong>{sibling.class_name} {sibling.section_name && `- ${sibling.section_name}`}</strong>
                                                                 </div>
@@ -688,57 +840,41 @@ export default function NewAdmission() {
                                                                 )}
                                                             </div>
 
-                                                            {/* Relationship Type Selector */}
-                                                            <div className="border-top pt-3">
-                                                                <label className="form-label fw-bold small">Relationship Type:</label>
-                                                                <div className="row g-2">
-                                                                    <div className="col-md-6">
-                                                                        <div
-                                                                            className={`card ${sibling.relation_type === 'blood' ? 'border-primary border-2 bg-primary bg-opacity-10' : ''}`}
-                                                                            style={{ cursor: 'pointer' }}
-                                                                            onClick={() => updateSiblingRelationType(index, 'blood')}
-                                                                        >
-                                                                            <div className="card-body p-2 text-center">
-                                                                                <input
-                                                                                    type="radio"
-                                                                                    checked={sibling.relation_type === 'blood'}
-                                                                                    onChange={() => updateSiblingRelationType(index, 'blood')}
-                                                                                    className="form-check-input me-2"
-                                                                                />
-                                                                                <i className="bi bi-people-fill text-primary"></i>
-                                                                                <strong className="ms-1 small">Blood Sibling</strong>
+                                                            {/* Relationship Type Evaluator */}
+                                                            {(() => {
+                                                                const currentFather = (form.father_name || '').trim().toLowerCase();
+                                                                const siblingFather = (sibling.father_name || '').trim().toLowerCase();
+                                                                const isBlood = currentFather !== '' && siblingFather !== '' && currentFather === siblingFather;
+                                                                return (
+                                                                    <div className="border-top pt-3 text-center">
+                                                                        <label className="form-label fw-bold small me-2">Detected Relation:</label>
+                                                                        {isBlood ? (
+                                                                            <span className="badge bg-primary px-3 py-2">
+                                                                                <i className="bi bi-people-fill me-1"></i> Blood Sibling
+                                                                            </span>
+                                                                        ) : (
+                                                                            <span className="badge bg-warning text-dark px-3 py-2">
+                                                                                <i className="bi bi-diagram-3-fill me-1"></i> Cousin
+                                                                            </span>
+                                                                        )}
+                                                                        {isBlood ? (
+                                                                            <div className="alert alert-info alert-sm mt-3 mb-0 py-2 px-3 text-start">
+                                                                                <small>
+                                                                                    <i className="bi bi-info-circle me-1"></i>
+                                                                                    Since father names match, they will be mapped as Blood Siblings on saving.
+                                                                                </small>
                                                                             </div>
-                                                                        </div>
-                                                                    </div>
-                                                                    <div className="col-md-6">
-                                                                        <div
-                                                                            className={`card ${sibling.relation_type === 'cousin' ? 'border-warning border-2 bg-warning bg-opacity-10' : ''}`}
-                                                                            style={{ cursor: 'pointer' }}
-                                                                            onClick={() => updateSiblingRelationType(index, 'cousin')}
-                                                                        >
-                                                                            <div className="card-body p-2 text-center">
-                                                                                <input
-                                                                                    type="radio"
-                                                                                    checked={sibling.relation_type === 'cousin'}
-                                                                                    onChange={() => updateSiblingRelationType(index, 'cousin')}
-                                                                                    className="form-check-input me-2"
-                                                                                />
-                                                                                <i className="bi bi-diagram-3-fill text-warning"></i>
-                                                                                <strong className="ms-1 small">Cousin</strong>
+                                                                        ) : (currentFather !== '' && (
+                                                                            <div className="alert alert-warning alert-sm mt-3 mb-0 py-2 px-3 text-start">
+                                                                                <small>
+                                                                                    <i className="bi bi-info-circle me-1"></i>
+                                                                                    Father names do not match, they will be mapped as Cousins on saving.
+                                                                                </small>
                                                                             </div>
-                                                                        </div>
+                                                                        ))}
                                                                     </div>
-                                                                </div>
-
-                                                                {sibling.relation_type === 'blood' && (
-                                                                    <div className="alert alert-info alert-sm mt-2 mb-0 py-1 px-2">
-                                                                        <small>
-                                                                            <i className="bi bi-info-circle me-1"></i>
-                                                                            Parent details will be auto-filled from this sibling
-                                                                        </small>
-                                                                    </div>
-                                                                )}
-                                                            </div>
+                                                                );
+                                                            })()}
                                                         </div>
                                                     )}
                                                 </div>
@@ -778,10 +914,48 @@ export default function NewAdmission() {
                                 <div className={`row g-3 ${form.is_orphan ? 'opacity-50' : ''}`}>
                                     <h6 className="fw-bold text-muted border-bottom pb-2">Parents Information <span className="small text-secondary fw-normal">(Required even if not Guardian)</span></h6>
                                     {/* FATHER */}
-                                    <div className="col-md-3">
+                                    <div className="col-md-3 position-relative">
                                         <label className="form-label fw-bold">Father Name <span className="text-danger">*</span></label>
                                         <input type="text" className="form-control" required={!form.is_orphan}
-                                            value={form.father_name} onChange={e => handleTextChange("father_name", e.target.value)} />
+                                            value={form.father_name}
+                                            onChange={e => {
+                                                const val = e.target.value;
+                                                handleTextChange("father_name", val);
+                                                searchFatherSuggestions(val);
+                                            }}
+                                            onFocus={() => {
+                                                if (form.father_name && form.father_name.length >= 2) {
+                                                    searchFatherSuggestions(form.father_name);
+                                                }
+                                            }} />
+                                        {/* Father Auto-Suggestions Dropdown */}
+                                        {showFatherSuggestions && fatherSuggestions.length > 0 && (
+                                            <div className="position-absolute start-0 end-0 bg-white border rounded-3 shadow-lg z-3 mt-1 p-2"
+                                                style={{ maxHeight: '220px', overflowY: 'auto', top: '100%', minWidth: '260px' }}>
+                                                <div className="d-flex justify-content-between align-items-center mb-1 pb-1 border-bottom">
+                                                    <small className="fw-bold text-muted">Matching Existing Fathers:</small>
+                                                    <button type="button" className="btn-close btn-sm" onClick={() => setShowFatherSuggestions(false)}></button>
+                                                </div>
+                                                {fatherSuggestions.map((item, idx) => (
+                                                    <div key={idx}
+                                                        className="p-2 border-bottom cursor-pointer rounded mb-1 bg-light-subtle"
+                                                        style={{ cursor: 'pointer' }}
+                                                        onClick={() => applyFatherDetails(item)}>
+                                                        <div className="fw-bold text-primary" style={{ fontSize: '0.85rem' }}>
+                                                            <i className="bi bi-person-fill me-1"></i>{item.father_name}
+                                                        </div>
+                                                        <div className="small text-dark" style={{ fontSize: '0.78rem' }}>
+                                                            <i className="bi bi-telephone-fill text-success me-1"></i>Phone: <strong>{item.father_phone || 'N/A'}</strong>
+                                                        </div>
+                                                        {item.first_name && (
+                                                            <div className="text-muted" style={{ fontSize: '0.7rem' }}>
+                                                                Student: {item.first_name} {item.last_name} ({item.admission_no})
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        )}
                                     </div>
                                     <div className="col-md-3">
                                         <label className="form-label fw-bold">Father Phone</label>
@@ -920,7 +1094,7 @@ export default function NewAdmission() {
                             </div>
                             <div className="card-body p-4">
 
-                                {/* FAMILY FEE MODE — when sibling is selected */}
+                                {/* FAMILY FEE MODE when sibling is selected */}
                                 {hasSibling && selectedSiblings.length > 0 && selectedSiblings[0].family_id ? (
                                     <>
                                         <div className="alert alert-warning d-flex align-items-start gap-2 mb-3">
@@ -954,9 +1128,9 @@ export default function NewAdmission() {
                                                 )}
                                                 <div className="input-group">
                                                     <span className="input-group-text">Rs.</span>
-                                                    <input type="number" className="form-control form-control-lg" placeholder="0.00" required
+                                                    <input type="text" className="form-control form-control-lg" placeholder="0.00" required
                                                         value={form.family_fee}
-                                                        onChange={e => setForm({ ...form, family_fee: e.target.value })} />
+                                                        onChange={e => handleNumberChange("family_fee", e.target.value)} />
                                                 </div>
                                                 <small className="text-muted">
                                                     <i className="bi bi-info-circle me-1"></i>
@@ -967,7 +1141,7 @@ export default function NewAdmission() {
                                                 <label className="form-label fw-bold">Admission Fee (One Time)</label>
                                                 <div className="input-group">
                                                     <span className="input-group-text">Rs.</span>
-                                                    <input type="number" className="form-control" placeholder="0.00"
+                                                    <input type="text" className="form-control" placeholder="0.00"
                                                         value={form.admission_fee} onChange={e => handleNumberChange("admission_fee", e.target.value)} />
                                                 </div>
                                             </div>
@@ -975,14 +1149,14 @@ export default function NewAdmission() {
                                                 <label className="form-label fw-bold">Other Charges</label>
                                                 <div className="input-group">
                                                     <span className="input-group-text">Rs.</span>
-                                                    <input type="number" className="form-control" placeholder="0.00"
+                                                    <input type="text" className="form-control" placeholder="0.00"
                                                         value={form.other_charges} onChange={e => handleNumberChange("other_charges", e.target.value)} />
                                                 </div>
                                             </div>
                                         </div>
                                     </>
                                 ) : (
-                                    /* INDIVIDUAL FEE MODE — normal student */
+                                    /* INDIVIDUAL FEE MODE normal student */
                                     <>
                                         <div className="alert alert-info">
                                             <i className="bi bi-info-circle me-2"></i> Set the initial fee obligations for this student.
@@ -992,7 +1166,7 @@ export default function NewAdmission() {
                                                 <label className="form-label fw-bold display-6 fs-5">Monthly Tuition Fee <span className="text-danger">*</span></label>
                                                 <div className="input-group">
                                                     <span className="input-group-text">Rs.</span>
-                                                    <input type="number" className="form-control form-control-lg" placeholder="0.00" required
+                                                    <input type="text" className="form-control form-control-lg" placeholder="0.00" required
                                                         value={form.monthly_fee} onChange={e => handleNumberChange("monthly_fee", e.target.value)} />
                                                 </div>
                                             </div>
@@ -1000,7 +1174,7 @@ export default function NewAdmission() {
                                                 <label className="form-label fw-bold">Admission Fee (One Time)</label>
                                                 <div className="input-group">
                                                     <span className="input-group-text">Rs.</span>
-                                                    <input type="number" className="form-control" placeholder="0.00"
+                                                    <input type="text" className="form-control" placeholder="0.00"
                                                         value={form.admission_fee} onChange={e => handleNumberChange("admission_fee", e.target.value)} />
                                                 </div>
                                             </div>
@@ -1008,7 +1182,7 @@ export default function NewAdmission() {
                                                 <label className="form-label fw-bold">Other Charges</label>
                                                 <div className="input-group">
                                                     <span className="input-group-text">Rs.</span>
-                                                    <input type="number" className="form-control" placeholder="0.00"
+                                                    <input type="text" className="form-control" placeholder="0.00"
                                                         value={form.other_charges} onChange={e => handleNumberChange("other_charges", e.target.value)} />
                                                 </div>
                                             </div>
@@ -1027,8 +1201,7 @@ export default function NewAdmission() {
                                     <div className="input-group">
                                         <span className="input-group-text bg-white"><i className="bi bi-wallet2" style={{ color: 'var(--accent-orange)' }} /></span>
                                         <span className="input-group-text bg-white fw-semibold">Rs.</span>
-                                        <input type="number" className="form-control" placeholder="0.00 (agar koi purana baqi ho)"
-                                            min="0" step="1"
+                                        <input type="text" className="form-control" placeholder="0.00 (agar koi purana baqi ho)"
                                             value={form.opening_balance} onChange={e => handleNumberChange("opening_balance", e.target.value)} />
                                     </div>
                                 </div>

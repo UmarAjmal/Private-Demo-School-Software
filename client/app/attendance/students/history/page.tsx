@@ -40,7 +40,7 @@ export default function StudentAttendanceHistoryPage() {
     const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 
     useEffect(() => {
-        fetch(`${process.env.NEXT_PUBLIC_API_URL || "https://shmool.onrender.com"}` + '/academic').then(r => r.json()).then(setClasses).catch(() => { });
+        fetch(`${process.env.NEXT_PUBLIC_API_URL || "https://shmool.onrender.com"}/academic`).then(r => r.json()).then(setClasses).catch(() => { });
     }, []);
 
     const showToast = (type: 'success' | 'danger', msg: string) => {

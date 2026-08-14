@@ -28,7 +28,7 @@ export default function ExpenseReportPage() {
         const m = String(now.getMonth() + 1).padStart(2, '0');
         setFromDate(`${y}-${m}-01`);
         setToDate(`${y}-${m}-${new Date(y, now.getMonth() + 1, 0).getDate()}`);
-        fetch(`${process.env.NEXT_PUBLIC_API_URL || "https://shmool.onrender.com"}` + '/reports/expense-categories').then(r => r.json()).then(setCategories).catch(console.error);
+        fetch(`${process.env.NEXT_PUBLIC_API_URL || "https://shmool.onrender.com"}/reports/expense-categories`).then(r => r.json()).then(setCategories).catch(console.error);
     }, []);
 
     const loadReport = async () => {
@@ -165,7 +165,7 @@ export default function ExpenseReportPage() {
                         <div className="col-12 col-md-8">
                             <div className="card border-0 shadow-sm">
                                 <div className="card-header bg-white border-bottom py-3" style={{ borderLeft: '4px solid var(--primary-teal)' }}>
-                                    <h6 className="mb-0 fw-bold">Expense Detail — {expenses.length} records</h6>
+                                    <h6 className="mb-0 fw-bold">Expense Detail {expenses.length} records</h6>
                                 </div>
                                 <div className="card-body p-0">
                                     <div className="table-responsive">

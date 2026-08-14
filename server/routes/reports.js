@@ -61,7 +61,7 @@ router.get('/results', async (req, res) => {
         let idx = 2;
 
         // Build the JOIN condition for exam_marks
-        let emJoinCondition = `em.academic_year_id = $1`;
+        let emJoinCondition = `em.academic_year_id = $1 AND em.status = 'published'`;
         if (term_id) {
             emJoinCondition += ` AND em.term_id = $${idx}`;
             params.push(term_id);
@@ -189,8 +189,11 @@ router.get('/family-fee', async (req, res) => {
     try {
         const { month, year, class_id, section_id, status, head_id } = req.query;
 
-        if (!month || !year) {
-            return res.status(400).json({ error: 'month and year are required' });
+        const monthArr = month.toString().split(',').map(n => parseInt(n.trim(), 10)).filter(n => !isNaN(n));
+        const yearNum = parseInt(year.toString(), 10);
+
+        if (monthArr.length === 0) {
+            return res.status(400).json({ error: 'valid month is required' });
         }
 
         // Get slips with student/family info
@@ -216,8 +219,10 @@ router.get('/family-fee', async (req, res) => {
             LEFT JOIN families f ON ms.family_id = f.family_id
             LEFT JOIN classes c ON s.class_id = c.class_id
             LEFT JOIN sections sec ON s.section_id = sec.section_id
-            WHERE ms.month = $1 AND ms.year = $2            AND (s.category IS NULL OR LOWER(TRIM(s.category)) != 'trusted')        `;
-        const params = [month, year];
+            WHERE (ms.month = ANY($1::int[]) OR (ms.months_list IS NOT NULL AND ms.months_list && $1::int[])) AND ms.year = $2
+              AND (s.category IS NULL OR LOWER(TRIM(s.category)) != 'trusted')
+        `;
+        const params = [monthArr, yearNum];
         let idx = 3;
 
         if (class_id)  { slipQuery += ` AND s.class_id = $${idx++}`;   params.push(class_id); }
@@ -359,6 +364,146 @@ router.get('/admission-fee', async (req, res) => {
         res.json({ admission_fees: result.rows, monthlyStats, summary });
     } catch (err) {
         console.error(err.message);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// ─── 8. Monthly Tuition & Financial Summary Report ────────────────────────
+router.get('/monthly-tuition', async (req, res) => {
+    try {
+        const { month, year, class_id, section_id, status } = req.query;
+
+        if (!month || !year) {
+            return res.status(400).json({ error: 'month and year are required' });
+        }
+
+        const monthArr = month.toString().split(',').map(n => parseInt(n.trim(), 10)).filter(n => !isNaN(n));
+        const yearNum = parseInt(year.toString(), 10);
+
+        if (monthArr.length === 0) {
+            return res.status(400).json({ error: 'valid month is required' });
+        }
+
+        // 1. Get Slips with Tuition Fee calculation & student/family metadata
+        let slipQuery = `
+            SELECT DISTINCT
+                ms.slip_id,
+                ms.student_id,
+                ms.family_id,
+                ms.month,
+                ms.year,
+                ms.total_amount AS slip_total_amount,
+                ms.paid_amount AS slip_paid_amount,
+                ms.status AS slip_status,
+                ms.due_date,
+                ms.issue_date,
+                s.admission_no,
+                s.roll_no,
+                CONCAT(s.first_name, ' ', s.last_name) AS student_name,
+                s.father_name,
+                s.father_phone,
+                f.family_name,
+                c.class_name,
+                sec.section_name,
+                -- Tuition Fee Billed (From line items or slip total)
+                COALESCE((
+                    SELECT SUM(sli.amount)
+                    FROM slip_line_items sli
+                    WHERE sli.slip_id = ms.slip_id 
+                      AND (LOWER(sli.head_name) LIKE '%tuition%' OR LOWER(sli.head_name) LIKE '%tution%' OR sli.head_id = 1)
+                ), ms.total_amount) AS tuition_billed,
+                -- Tuition Fee Paid (From line items or proportional slip paid)
+                COALESCE((
+                    SELECT SUM(COALESCE(sli.paid_amount, 0))
+                    FROM slip_line_items sli
+                    WHERE sli.slip_id = ms.slip_id 
+                      AND (LOWER(sli.head_name) LIKE '%tuition%' OR LOWER(sli.head_name) LIKE '%tution%' OR sli.head_id = 1)
+                ), ms.paid_amount) AS tuition_paid
+            FROM monthly_fee_slips ms
+            LEFT JOIN students s ON ms.student_id = s.student_id
+            LEFT JOIN families f ON ms.family_id = f.family_id
+            LEFT JOIN classes c ON s.class_id = c.class_id
+            LEFT JOIN sections sec ON s.section_id = sec.section_id
+            WHERE (ms.month = ANY($1::int[]) OR (ms.months_list IS NOT NULL AND ms.months_list && $1::int[])) AND ms.year = $2
+              AND (s.category IS NULL OR LOWER(TRIM(s.category)) != 'trusted')
+        `;
+        const params = [monthArr, yearNum];
+        let idx = 3;
+
+        if (class_id && class_id !== '') {
+            slipQuery += ` AND s.class_id = $${idx++}`;
+            params.push(parseInt(class_id.toString(), 10));
+        }
+        if (section_id && section_id !== '') {
+            slipQuery += ` AND s.section_id = $${idx++}`;
+            params.push(parseInt(section_id.toString(), 10));
+        }
+
+        slipQuery += ` ORDER BY c.class_name, sec.section_name, student_name`;
+
+        const slipsRes = await pool.query(slipQuery, params);
+        let families = slipsRes.rows.map(r => {
+            const billed = parseFloat(r.tuition_billed || 0);
+            const paid = parseFloat(r.tuition_paid || 0);
+            const remaining = Math.max(0, billed - paid);
+            let pStatus = 'unpaid';
+            if (paid >= billed && billed > 0) pStatus = 'paid';
+            else if (paid > 0) pStatus = 'partial';
+            return {
+                ...r,
+                tuition_billed: billed,
+                tuition_paid: paid,
+                tuition_remaining: remaining,
+                payment_status: pStatus
+            };
+        });
+
+        // Filter by payment status if requested
+        if (status && status !== 'all') {
+            families = families.filter(f => f.payment_status === status);
+        }
+
+        // 2. Calculate Expenses for selected Month & Year
+        const expenseQuery = `
+            SELECT COALESCE(SUM(amount), 0) as total_expense
+            FROM expenses
+            WHERE EXTRACT(MONTH FROM expense_date) = ANY($1::int[]) 
+              AND EXTRACT(YEAR FROM expense_date) = $2
+              AND (status IS NULL OR LOWER(status) != 'cancelled')
+        `;
+        const expenseRes = await pool.query(expenseQuery, [monthArr, yearNum]);
+        const totalExpenses = parseFloat(expenseRes.rows[0]?.total_expense || 0);
+
+        // 3. Compute Financial Summary Statistics
+        const totalBilled = families.reduce((sum, f) => sum + f.tuition_billed, 0);
+        const totalCollected = families.reduce((sum, f) => sum + f.tuition_paid, 0);
+        const totalRemaining = totalBilled - totalCollected;
+
+        const expectedSurplus = totalBilled - totalExpenses; // Tuition Billed - Expenses
+        const netCashBalance = totalCollected - totalExpenses; // Tuition Collected - Expenses
+        const collectionRate = totalBilled > 0 ? ((totalCollected / totalBilled) * 100).toFixed(1) : 0;
+
+        res.json({
+            month: monthArr.length === 1 ? monthArr[0] : monthArr.join(','),
+            year: yearNum,
+            summary: {
+                total_billed: totalBilled,
+                total_collected: totalCollected,
+                total_remaining: totalRemaining,
+                total_expenses: totalExpenses,
+                expected_surplus: expectedSurplus,
+                net_cash_balance: netCashBalance,
+                collection_rate: parseFloat(collectionRate),
+                total_families_count: families.length,
+                paid_count: families.filter(f => f.payment_status === 'paid').length,
+                partial_count: families.filter(f => f.payment_status === 'partial').length,
+                unpaid_count: families.filter(f => f.payment_status === 'unpaid').length
+            },
+            families
+        });
+
+    } catch (err) {
+        console.error("Error in GET /reports/monthly-tuition:", err);
         res.status(500).json({ error: err.message });
     }
 });

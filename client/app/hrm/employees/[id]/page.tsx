@@ -30,7 +30,7 @@ export default function EmployeeProfile() {
                 setAttRecords(data.records || []);
                 setAttStats(data.stats || {});
             }
-        } catch {}
+        } catch { }
         setAttLoading(false);
     };
 
@@ -176,9 +176,9 @@ export default function EmployeeProfile() {
                                                     {employee.system_username}
                                                 </span>
                                                 {hasPermission('hrm', 'write') && (
-                                                <button className="btn btn-sm text-warning p-0" title="Reset Password" onClick={handleChangePassword}>
-                                                    <i className="bi bi-key-fill fs-6"></i>
-                                                </button>
+                                                    <button className="btn btn-sm text-warning p-0" title="Reset Password" onClick={handleChangePassword}>
+                                                        <i className="bi bi-key-fill fs-6"></i>
+                                                    </button>
                                                 )}
                                             </div>
                                         ) : (
@@ -229,8 +229,8 @@ export default function EmployeeProfile() {
                             <div className="card-header bg-white border-bottom p-0">
                                 <ul className="nav nav-tabs nav-fill" role="tablist">
                                     {[
-                                        { key: 'overview',    icon: 'bi-person-lines-fill', label: 'Overview'    },
-                                        { key: 'attendance',  icon: 'bi-calendar-check',    label: 'Attendance'  },
+                                        { key: 'overview', icon: 'bi-person-lines-fill', label: 'Overview' },
+                                        { key: 'attendance', icon: 'bi-calendar-check', label: 'Attendance' },
                                     ].map(tab => (
                                         <li className="nav-item" key={tab.key}>
                                             <button
@@ -338,8 +338,8 @@ export default function EmployeeProfile() {
                                                 <label className="form-label fw-bold small text-muted mb-1">Month</label>
                                                 <select className="form-select form-select-sm" value={attMonth}
                                                     onChange={e => setAttMonth(e.target.value)} style={{ minWidth: 130 }}>
-                                                    {['1','2','3','4','5','6','7','8','9','10','11','12'].map((m, i) => (
-                                                        <option key={m} value={m}>{['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][i]}</option>
+                                                    {['1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12'].map((m, i) => (
+                                                        <option key={m} value={m}>{['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][i]}</option>
                                                     ))}
                                                 </select>
                                             </div>
@@ -347,7 +347,7 @@ export default function EmployeeProfile() {
                                                 <label className="form-label fw-bold small text-muted mb-1">Year</label>
                                                 <select className="form-select form-select-sm" value={attYear}
                                                     onChange={e => setAttYear(e.target.value)} style={{ minWidth: 90 }}>
-                                                    {[String(now.getFullYear()-1), String(now.getFullYear()), String(now.getFullYear()+1)].map(y => (
+                                                    {[String(now.getFullYear() - 1), String(now.getFullYear()), String(now.getFullYear() + 1)].map(y => (
                                                         <option key={y} value={y}>{y}</option>
                                                     ))}
                                                 </select>
@@ -365,10 +365,10 @@ export default function EmployeeProfile() {
                                         <div className="row g-2 mb-4">
                                             {[
                                                 { l: 'Present', v: attStats.present, c: '#198754' },
-                                                { l: 'Absent',  v: attStats.absent,  c: '#dc3545' },
-                                                { l: 'Late',    v: attStats.late,    c: '#fd7e14' },
-                                                { l: 'Leave',   v: attStats.leave,   c: '#0d6efd' },
-                                                { l: 'Total',   v: attStats.total,   c: '#6c757d' },
+                                                { l: 'Absent', v: attStats.absent, c: '#dc3545' },
+                                                { l: 'Late', v: attStats.late, c: '#fd7e14' },
+                                                { l: 'Leave', v: attStats.leave, c: '#0d6efd' },
+                                                { l: 'Total', v: attStats.total, c: '#6c757d' },
                                             ].map(s => (
                                                 <div className="col" key={s.l}>
                                                     <div className="card border-0 shadow-sm text-center py-2 rounded-3"
@@ -396,36 +396,36 @@ export default function EmployeeProfile() {
                                         {attRecords.length > 0 ? (
                                             <div className="bg-white rounded-4 shadow-sm">
                                                 <div className="table-responsive">
-                                                <table className="table table-hover table-sm align-middle mb-0">
-                                                    <thead style={{ background: 'var(--primary-dark)', color: '#fff' }}>
-                                                        <tr>
-                                                            <th className="ps-3">#</th><th>Date</th><th>Day</th><th>Status</th>
-                                                            <th>Check In</th><th>Check Out</th><th>Remarks</th>
-                                                        </tr>
-                                                    </thead>
-                                                    <tbody>
-                                                        {attRecords.map((r: any, i: number) => {
-                                                            const d = new Date(r.attendance_date);
-                                                            const clr: Record<string, string> = { Present: '#198754', Absent: '#dc3545', Late: '#fd7e14', Leave: '#0d6efd' };
-                                                            return (
-                                                                <tr key={r.attendance_id}>
-                                                                    <td className="ps-3 text-muted small">{i + 1}</td>
-                                                                    <td className="fw-medium">{d.toLocaleDateString('en-PK', { day: '2-digit', month: 'short', year: 'numeric' })}</td>
-                                                                    <td className="text-muted small">{d.toLocaleDateString('en-PK', { weekday: 'short' })}</td>
-                                                                    <td>
-                                                                        <span className="badge rounded-pill px-3"
-                                                                            style={{ background: (clr[r.status] || '#6c757d') + '20', color: clr[r.status] || '#6c757d', border: `1px solid ${clr[r.status] || '#6c757d'}`, fontWeight: 700 }}>
-                                                                            {r.status}
-                                                                        </span>
-                                                                    </td>
-                                                                    <td className="small">{r.check_in_time ? r.check_in_time.substring(0, 5) : '—'}</td>
-                                                                    <td className="small">{r.check_out_time ? r.check_out_time.substring(0, 5) : '—'}</td>
-                                                                    <td className="text-muted small">{r.remarks || '—'}</td>
-                                                                </tr>
-                                                            );
-                                                        })}
-                                                    </tbody>
-                                                </table>
+                                                    <table className="table table-hover table-sm align-middle mb-0">
+                                                        <thead style={{ background: 'var(--primary-dark)', color: '#fff' }}>
+                                                            <tr>
+                                                                <th className="ps-3">#</th><th>Date</th><th>Day</th><th>Status</th>
+                                                                <th>Check In</th><th>Check Out</th><th>Remarks</th>
+                                                            </tr>
+                                                        </thead>
+                                                        <tbody>
+                                                            {attRecords.map((r: any, i: number) => {
+                                                                const d = new Date(r.attendance_date);
+                                                                const clr: Record<string, string> = { Present: '#198754', Absent: '#dc3545', Late: '#fd7e14', Leave: '#0d6efd' };
+                                                                return (
+                                                                    <tr key={r.attendance_id}>
+                                                                        <td className="ps-3 text-muted small">{i + 1}</td>
+                                                                        <td className="fw-medium">{d.toLocaleDateString('en-PK', { day: '2-digit', month: 'short', year: 'numeric' })}</td>
+                                                                        <td className="text-muted small">{d.toLocaleDateString('en-PK', { weekday: 'short' })}</td>
+                                                                        <td>
+                                                                            <span className="badge rounded-pill px-3"
+                                                                                style={{ background: (clr[r.status] || '#6c757d') + '20', color: clr[r.status] || '#6c757d', border: `1px solid ${clr[r.status] || '#6c757d'}`, fontWeight: 700 }}>
+                                                                                {r.status}
+                                                                            </span>
+                                                                        </td>
+                                                                        <td className="small">{r.check_in_time ? r.check_in_time.substring(0, 5) : '—'}</td>
+                                                                        <td className="small">{r.check_out_time ? r.check_out_time.substring(0, 5) : '—'}</td>
+                                                                        <td className="text-muted small">{r.remarks || '—'}</td>
+                                                                    </tr>
+                                                                );
+                                                            })}
+                                                        </tbody>
+                                                    </table>
                                                 </div>
                                             </div>
                                         ) : !attLoading ? (

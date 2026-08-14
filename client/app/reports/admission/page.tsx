@@ -39,12 +39,12 @@ export default function AdmissionFeeReportPage() {
     const [status, setStatus] = useState('');
     const [fees, setFees] = useState<AdmissionFee[]>([]);
     const [monthlyStats, setMonthlyStats] = useState<MonthlyStat[]>([]);
-    const [summary, setSummary] = useState<Summary>({ 
-        total_admissions: 0, 
-        total_billed: 0, 
-        total_collected: 0, 
-        total_discount: 0, 
-        total_pending: 0 
+    const [summary, setSummary] = useState<Summary>({
+        total_admissions: 0,
+        total_billed: 0,
+        total_collected: 0,
+        total_discount: 0,
+        total_pending: 0
     });
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
@@ -69,7 +69,7 @@ export default function AdmissionFeeReportPage() {
 
             const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "https://shmool.onrender.com"}/reports/admission-fee?${params}`);
             if (!res.ok) throw new Error((await res.json()).error || 'Failed to fetch report');
-            
+
             const data = await res.json();
             setFees(data.admission_fees);
             setMonthlyStats(data.monthlyStats);

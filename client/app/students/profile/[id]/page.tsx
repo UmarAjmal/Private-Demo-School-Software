@@ -1,8 +1,10 @@
 'use client';
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { notify } from '@/app/utils/notify';
 import { useAuth } from '@/contexts/AuthContext';
+import { NotificationBell } from '@/components/notifications/NotificationBell';
 
 export default function StudentProfile({ params }: { params: { id: string } }) {
     const [student, setStudent] = useState<any>(null);
@@ -36,7 +38,7 @@ export default function StudentProfile({ params }: { params: { id: string } }) {
             const month = m || attMonth; const year = y || attYear;
             const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "https://shmool.onrender.com"}/attendance/students/${params.id}/history?month=${month}&year=${year}`);
             if (res.ok) { const data = await res.json(); setAttRecords(data.records || []); setAttStats(data.stats || {}); }
-        } catch {}
+        } catch { }
         setAttLoading(false);
     };
 
@@ -45,7 +47,7 @@ export default function StudentProfile({ params }: { params: { id: string } }) {
         try {
             const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "https://shmool.onrender.com"}/exams/student-academics/${params.id}`);
             if (res.ok) { const data = await res.json(); setAcad(data); }
-        } catch {}
+        } catch { }
         setAcadLoading(false);
     };
 
@@ -69,6 +71,18 @@ export default function StudentProfile({ params }: { params: { id: string } }) {
     }).format(parseFloat(n?.toString() || '0'));
 
     useEffect(() => {
+        // Reset states to prevent displaying stale data from the previous student
+        setStudent(null);
+        setSiblings([]);
+        setLoading(true);
+        setLoadingSiblings(true);
+        setAcad(null);
+        setFamilySlips([]);
+        setAdmissionFee(null);
+        setAdmissionPayments([]);
+        setAttRecords([]);
+        setAttStats({ present: 0, absent: 0, late: 0, leave: 0, total: 0 });
+
         const fetchStudent = async () => {
             try {
                 const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "https://shmool.onrender.com"}/students/${params.id}`);
@@ -83,7 +97,7 @@ export default function StudentProfile({ params }: { params: { id: string } }) {
                 setLoading(false);
             }
         };
-        
+
         const fetchSiblings = async () => {
             setLoadingSiblings(true);
             try {
@@ -98,13 +112,19 @@ export default function StudentProfile({ params }: { params: { id: string } }) {
                 setLoadingSiblings(false);
             }
         };
-        
+
         fetchStudent();
         fetchSiblings();
         fetchAdmissionFee();
         fetchFamilySlips();
         fetchAcademics();
     }, [params.id]);
+
+    useEffect(() => {
+        if (params.id) {
+            fetchAttendance(attMonth, attYear);
+        }
+    }, [params.id, attMonth, attYear]);
 
     const fetchFamilySlips = async () => {
         setLoadingFamilySlips(true);
@@ -150,7 +170,7 @@ export default function StudentProfile({ params }: { params: { id: string } }) {
     };
 
     const handleToggleStatus = async () => {
-        if(!confirm(`Are you sure you want to change status to ${student.status === 'Active' ? 'Inactive' : 'Active'}?`)) return;
+        if (!confirm(`Are you sure you want to change status to ${student.status === 'Active' ? 'Inactive' : 'Active'}?`)) return;
         try {
             const newStatus = student.status === 'Active' ? 'Inactive' : 'Active';
             const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "https://shmool.onrender.com"}/students/${params.id}/status`, {
@@ -164,48 +184,48 @@ export default function StudentProfile({ params }: { params: { id: string } }) {
             } else {
                 notify.error('Failed to update status');
             }
-        } catch (e) { 
+        } catch (e) {
             console.error(e);
             notify.error('Error updating status');
         }
     };
 
     const handleGenerateCredentials = async () => {
-        if(!confirm("Generate System Login Credentials for this student?")) return;
+        if (!confirm("Generate System Login Credentials for this student?")) return;
         try {
             const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "https://shmool.onrender.com"}/students/${params.id}/generate-credentials`, { method: 'PATCH' });
             const data = await res.json();
-            if(res.ok) {
+            if (res.ok) {
                 notify.success(`Credentials Created! Username: ${data.username}`);
-                setStudent({...student, username: data.username});
+                setStudent({ ...student, username: data.username });
             } else {
                 notify.error(data.error || "Failed");
             }
-        } catch(e) { notify.error("Connection Error"); }
+        } catch (e) { notify.error("Connection Error"); }
     };
 
-const handleChangePassword = async () => {
+    const handleChangePassword = async () => {
         if (!newAdminPwd || newAdminPwd.length < 6) {
-             notify.error("Password must be at least 6 characters.");
-             return;
+            notify.error("Password must be at least 6 characters.");
+            return;
         }
         setIsChangingPwd(true);
         try {
-            const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "https://shmool.onrender.com"}/students/${params.id}/change-password`, { 
+            const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "https://shmool.onrender.com"}/students/${params.id}/change-password`, {
                 method: 'PATCH',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ password: newAdminPwd })
             });
-            if(res.ok) {
+            if (res.ok) {
                 notify.success("Password changed successfully");
-                setStudent((prev: any) => ({...prev, system_pwd: newAdminPwd}));
+                setStudent((prev: any) => ({ ...prev, system_pwd: newAdminPwd }));
                 setChangePwdModalOpen(false);
                 setNewAdminPwd('');
             } else {
                 const d = await res.json();
                 notify.error(d.error || "Failed to change password");
             }
-        } catch(e) { notify.error("Connection Error"); }
+        } catch (e) { notify.error("Connection Error"); }
         finally { setIsChangingPwd(false); }
     };
 
@@ -213,7 +233,7 @@ const handleChangePassword = async () => {
     function gradeColor(grade: string | null): string {
         const map: Record<string, string> = {
             'A+': '#1b5e20', 'A': '#2196f3', 'B': '#4caf50',
-            'C': '#ff9800',  'D': '#ff5722', 'F': '#ef5350'
+            'C': '#ff9800', 'D': '#ff5722', 'F': '#ef5350'
         };
         return map[grade || ''] || '#9e9e9e';
     }
@@ -230,7 +250,7 @@ const handleChangePassword = async () => {
     function GradeBadge({ grade }: { grade: string | null }) {
         const bg: Record<string, string> = {
             'A+': '#1b5e20', 'A': '#2196f3', 'B': '#4caf50',
-            'C': '#ff9800',  'D': '#ff5722', 'F': '#ef5350'
+            'C': '#ff9800', 'D': '#ff5722', 'F': '#ef5350'
         };
         const color = bg[grade || ''] || '#9e9e9e';
         return (
@@ -248,9 +268,9 @@ const handleChangePassword = async () => {
 
     if (!student) return <div className="p-5 text-center">Student not found</div>;
 
-const getWaLink = (phone: string) => {
+    const getWaLink = (phone: string) => {
         if (!phone) return '#';
-        const cleaned = phone.replace(/\D/g, ''); 
+        const cleaned = phone.replace(/\D/g, '');
         const finalPhone = cleaned.startsWith('0') ? `92${cleaned.substring(1)}` : cleaned;
         return `https://wa.me/${finalPhone}`;
     };
@@ -258,29 +278,29 @@ const getWaLink = (phone: string) => {
     const InfoRow = ({ icon, label, value }: any) => {
         const isPhone = label === 'Mobile' || label === 'Phone';
         return (
-        <div className="d-flex align-items-center justify-content-between mb-3">
-            <div className="d-flex align-items-center">
-                <div className="me-3 text-secondary" style={{ width: '24px' }}>     
-                    <i className={`bi ${icon} fs-5`}></i>
+            <div className="d-flex align-items-center justify-content-between mb-3">
+                <div className="d-flex align-items-center">
+                    <div className="me-3 text-secondary" style={{ width: '24px' }}>
+                        <i className={`bi ${icon} fs-5`}></i>
+                    </div>
+                    <div>
+                        <small className="text-muted d-block text-uppercase" style={{ fontSize: '0.7rem', letterSpacing: '1px' }}>{label}</small>
+                        <div className="fw-medium text-dark">{value || 'N/A'}</div>
+                    </div>
                 </div>
-                <div>
-                    <small className="text-muted d-block text-uppercase" style={{ fontSize: '0.7rem', letterSpacing: '1px' }}>{label}</small>
-                    <div className="fw-medium text-dark">{value || 'N/A'}</div>     
-                </div>
+                {isPhone && value && value.trim().length > 0 && (
+                    <a href={getWaLink(value)} target="_blank" rel="noreferrer" style={{
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        width: 44, height: 44, borderRadius: '50%', background: '#25D366', color: '#fff',
+                        textDecoration: 'none', flexShrink: 0, boxShadow: '0 4px 10px rgba(37,211,102,0.3)',
+                        transform: 'scale(1)', transition: 'all 0.2s', marginLeft: '10px'
+                    }} title="Message on WhatsApp"
+                        onMouseEnter={e => { e.currentTarget.style.transform = 'scale(1.08)'; e.currentTarget.style.boxShadow = '0 6px 14px rgba(37,211,102,0.4)'; }}
+                        onMouseLeave={e => { e.currentTarget.style.transform = 'scale(1)'; e.currentTarget.style.boxShadow = '0 4px 10px rgba(37,211,102,0.3)'; }}>
+                        <i className="bi bi-whatsapp" style={{ fontSize: 22 }} />
+                    </a>
+                )}
             </div>
-            {isPhone && value && value.trim().length > 0 && (
-                <a href={getWaLink(value)} target="_blank" rel="noreferrer" style={{
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    width: 44, height: 44, borderRadius: '50%', background: '#25D366', color: '#fff',
-                    textDecoration: 'none', flexShrink: 0, boxShadow:'0 4px 10px rgba(37,211,102,0.3)',
-                    transform: 'scale(1)', transition: 'all 0.2s', marginLeft: '10px'
-                }} title="Message on WhatsApp"
-                onMouseEnter={e => { e.currentTarget.style.transform = 'scale(1.08)'; e.currentTarget.style.boxShadow = '0 6px 14px rgba(37,211,102,0.4)'; }}
-                onMouseLeave={e => { e.currentTarget.style.transform = 'scale(1)'; e.currentTarget.style.boxShadow = '0 4px 10px rgba(37,211,102,0.3)'; }}>
-                    <i className="bi bi-whatsapp" style={{ fontSize: 22 }} />
-                </a>
-            )}
-        </div>
         );
     };
 
@@ -314,35 +334,50 @@ const getWaLink = (phone: string) => {
                     </div>
                 </>
             )}
-            
+
             {/* HERO SECTION */}
-            <div className="position-relative profile-hero" style={{ height: '280px', background: 'linear-gradient(135deg, var(--primary-dark) 0%, var(--primary-teal) 100%)' }}>
-                <div className="position-absolute top-0 start-0 w-100 h-100 opacity-10" 
-                     style={{ backgroundImage: 'radial-gradient(#fff 1px, transparent 1px)', backgroundSize: '20px 20px' }}></div>
-                
-                <div className="container position-relative h-100">
-                    <button className="btn btn-outline-light position-absolute top-0 start-0 m-4 rounded-circle" onClick={() => router.back()}>
-                        <i className="bi bi-arrow-left"></i>
-                    </button>
-                    
-                    <div className="d-flex flex-column justify-content-end h-100 pb-5 ps-4">
-                        <div className="d-flex align-items-end gap-4" style={{ marginBottom: '-60px' }}>
-                            <div className="position-relative">
-                                <img 
-                                    src={student.image_url ? `${process.env.NEXT_PUBLIC_API_URL || "https://shmool.onrender.com"}/${student.image_url}` : "https://via.placeholder.com/150"} 
-                                    className="rounded-circle border border-4 border-white shadow-lg bg-white"
-                                    style={{ width: '160px', height: '160px', objectFit: 'cover' }}
-                                />
-                                <span className={`position-absolute bottom-0 end-0 p-3 border border-4 border-white rounded-circle ${student.status === 'Active' ? 'bg-success' : 'bg-secondary'}`}></span>
-                            </div>
-                            <div className="mb-5 text-white animate__animated animate__fadeInUp">
-                                <h1 className="fw-bold mb-1">{student.first_name} {student.last_name}</h1>
-                                <div className="d-flex gap-3 align-items-center opacity-75">
-                                    <span className="badge bg-white bg-opacity-25 border border-white border-opacity-25 backdrop-blur">
-                                        {student.class_name} • {student.section_name}
-                                    </span>
-                                    <span><i className="bi bi-upc-scan me-2"></i>{student.admission_no}</span>
-                                </div>
+            <div className="position-relative profile-hero py-4" style={{ background: 'linear-gradient(135deg, var(--primary-dark) 0%, var(--primary-teal) 100%)', borderRadius: '0 0 24px 24px' }}>
+                <div className="position-absolute top-0 start-0 w-100 h-100 opacity-10"
+                    style={{ backgroundImage: 'radial-gradient(#fff 1px, transparent 1px)', backgroundSize: '20px 20px' }}></div>
+
+                <div className="container position-relative px-3 px-sm-4">
+                    {/* Top Header Bar */}
+                    <div className="d-flex justify-content-between align-items-center mb-3">
+                        <button className="btn btn-outline-light rounded-circle shadow-sm" onClick={() => router.back()} style={{ width: 42, height: 42 }}>
+                            <i className="bi bi-arrow-left fs-5"></i>
+                        </button>
+                        <div className="d-flex align-items-center gap-2">
+                            <NotificationBell familyId={student?.family_id} studentId={student?.student_id} role="student" />
+                        </div>
+                    </div>
+
+                    {/* Student Hero Header Block */}
+                    <div className="d-flex flex-column flex-md-row align-items-center align-items-md-center gap-3 gap-md-4 py-2 text-center text-md-start">
+                        {/* Avatar */}
+                        <div className="position-relative flex-shrink-0">
+                            <img
+                                src={student.image_url ? `${process.env.NEXT_PUBLIC_API_URL || "https://shmool.onrender.com"}/${student.image_url}` : "https://ui-avatars.com/api/?name=" + encodeURIComponent(student.first_name || 'Student') + "&background=195053&color=fff&size=150"}
+                                className="rounded-circle border border-4 border-white shadow-lg bg-white"
+                                style={{ width: '110px', height: '110px', objectFit: 'cover' }}
+                                alt={student.first_name}
+                            />
+                            <span className={`position-absolute bottom-0 end-0 p-2 border border-3 border-white rounded-circle ${student.status === 'Active' ? 'bg-success' : 'bg-secondary'}`} title={student.status || 'Active'}></span>
+                        </div>
+
+                        {/* Title & Info */}
+                        <div className="text-white animate__animated animate__fadeInUp">
+                            <h2 className="fw-bold mb-1 fs-3 fs-md-2 text-white" style={{ textShadow: '0 2px 4px rgba(0,0,0,0.15)' }}>
+                                {student.first_name} {student.last_name}
+                            </h2>
+                            <div className="d-flex flex-wrap justify-content-center justify-content-md-start gap-2 align-items-center mt-2">
+                                <span className="badge px-3 py-1.5 rounded-pill fw-bold text-white shadow-sm" style={{ backgroundColor: 'rgba(0, 0, 0, 0.45)', border: '1px solid rgba(255, 255, 255, 0.4)', fontSize: '0.85rem' }}>
+                                    <i className="bi bi-mortarboard-fill me-1.5 text-warning"></i>
+                                    {student.class_name || 'N/A'}{student.section_name ? ` • ${student.section_name}` : ''}
+                                </span>
+                                <span className="badge bg-white px-3 py-1.5 rounded-pill font-monospace fw-bold shadow-sm" style={{ border: '1px solid rgba(255, 255, 255, 0.8)', fontSize: '0.82rem', color: '#195053' }}>
+                                    <i className="bi bi-upc-scan me-1 text-primary"></i>
+                                    {student.admission_no}
+                                </span>
                             </div>
                         </div>
                     </div>
@@ -350,108 +385,136 @@ const getWaLink = (phone: string) => {
             </div>
 
             {/* CONTENT SECTION */}
-            <div className="container pt-5 mt-4 pb-5">
+            <div className="container pt-4 mt-1 pb-5 px-3 px-sm-4">
                 <div className="row g-4 profile-side-grid">
                     {/* LEFT SIDEBAR */}
                     <div className="col-lg-3 animate__animated animate__fadeInLeft">
-                        {/* Status Card */}
-                        <div className="card border-0 shadow-sm rounded-4 mb-4 overflow-hidden">
-                            <div className="card-body p-4">
-                                <h6 className="fw-bold text-uppercase text-muted mb-4 small">Quick Info</h6>
-                                <div className="d-flex align-items-center mb-3">
-                                    <div className="me-3 text-secondary" style={{ width: '24px' }}>
-                                        <i className="bi bi-person-badge fs-5"></i>
-                                    </div>
-                                    <div className="flex-grow-1">
-                                        <small className="text-muted d-block text-uppercase" style={{ fontSize: '0.7rem', letterSpacing: '1px' }}>System Username</small>
-                                          <div className="fw-medium text-dark mt-1">
-                                              {student.username ? (
-                                                  <div className="d-flex flex-column gap-2 w-100">
-                                                      <div className="d-flex flex-wrap align-items-center justify-content-between gap-1">
-                                                          <div className="d-flex align-items-center gap-2" style={{ maxWidth: '100%' }}>
-                                                              <span className="font-monospace bg-light border px-2 py-1 rounded small text-primary text-truncate" style={{ display: 'inline-block', maxWidth: 'calc(100% - 30px)' }}>{student.username}</span>
-                                                              <button className="btn btn-sm text-secondary p-0 flex-shrink-0" title="Copy Username" onClick={() => { navigator.clipboard.writeText(student.username); notify.success('Username copied'); }}>
-                                                                  <i className="bi bi-copy" style={{fontSize: '0.85rem'}}></i>
-                                                              </button>
-                                                          </div>
-                                                          <button className="btn btn-sm text-primary p-0 flex-shrink-0" title="Change Password" onClick={() => setChangePwdModalOpen(true)}>
-                                                              <i className="bi bi-key-fill p-1 fs-6"></i>
-                                                          </button>
-                                                      </div>
-                                                      {user?.role_name === 'Administrator' && (
-                                                          <div className="d-flex align-items-center gap-2 mt-1">
-                                                              <span className="font-monospace text-muted small user-select-all text-break" style={{fontSize:'0.75rem', wordBreak: 'break-all'}}>
-                                                                  {showPwd ? (student.system_pwd || 'student123') : '••••••••'}
-                                                              </span>    
-                                                              <button className="btn btn-sm text-secondary p-0" title={showPwd ? 'Hide Password' : 'Show Password'} onClick={() => setShowPwd(!showPwd)}>
-                                                                  <i className={`bi bi-eye${showPwd ? '-slash' : ''}`} style={{fontSize: '0.85rem'}}></i>
-                                                              </button>  
-                                                          </div>
-                                                      )}
-                                                  </div>
-                                              ) : (
-                                                  <button className="btn btn-sm btn-outline-primary py-0 mt-1" style={{fontSize:'0.75rem'}} onClick={handleGenerateCredentials}>
-                                                      Generate Login
-                                                  </button>
-                                              )}
-                                          </div>
+                        <div className="row g-4">
+                            {/* Status Card */}
+                            <div className="col-12 col-md-6 col-lg-12">
+                                <div className="card border-0 shadow-sm rounded-4 h-100 overflow-hidden">
+                                    <div className="card-body p-3 p-md-4">
+                                        <h6 className="fw-bold text-uppercase text-muted mb-3 small">Quick Info</h6>
+
+                                        {/* Credentials Block */}
+                                        <div className="mb-3">
+                                            <small className="text-muted d-block text-uppercase fw-bold mb-2" style={{ fontSize: '0.68rem', letterSpacing: '0.8px' }}>
+                                                <i className="bi bi-shield-lock me-1"></i>System Credentials
+                                            </small>
+                                            {student.username ? (
+                                                <div className="bg-light p-3 rounded-3 border">
+                                                    {/* Username Row */}
+                                                    <div className="d-flex align-items-center justify-content-between gap-2 mb-2 pb-2 border-bottom border-secondary border-opacity-10">
+                                                        <div className="min-w-0 flex-grow-1">
+                                                            <small className="text-muted text-uppercase fw-semibold d-block" style={{ fontSize: '0.62rem', letterSpacing: '0.5px' }}>User ID</small>
+                                                            <span className="font-monospace text-primary fw-bold small text-truncate d-block" style={{ fontSize: '0.82rem' }}>
+                                                                {student.username}
+                                                            </span>
+                                                        </div>
+                                                        <div className="d-flex align-items-center gap-1 flex-shrink-0">
+                                                            <button className="btn btn-sm btn-white border shadow-xs text-secondary p-1.5 rounded-2" title="Copy Username" onClick={() => { navigator.clipboard.writeText(student.username); notify.success('Username copied'); }}>
+                                                                <i className="bi bi-copy" style={{ fontSize: '0.85rem' }}></i>
+                                                            </button>
+                                                            <button className="btn btn-sm btn-white border shadow-xs text-primary p-1.5 rounded-2" title="Change Password" onClick={() => setChangePwdModalOpen(true)}>
+                                                                <i className="bi bi-key-fill" style={{ fontSize: '0.85rem' }}></i>
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                    {/* Password Row */}
+                                                    <div className="d-flex align-items-center justify-content-between gap-2">
+                                                        <div className="min-w-0 flex-grow-1">
+                                                            <small className="text-muted text-uppercase fw-semibold d-block" style={{ fontSize: '0.62rem', letterSpacing: '0.5px' }}>Password</small>
+                                                            <span className="font-monospace text-dark fw-bold small text-truncate d-block" style={{ fontSize: '0.8rem' }}>
+                                                                {showPwd ? (student.system_pwd || 'student123') : '••••••••'}
+                                                            </span>
+                                                        </div>
+                                                        <div className="d-flex align-items-center gap-1 flex-shrink-0">
+                                                            <button className="btn btn-sm btn-white border shadow-xs text-secondary p-1.5 rounded-2" title={showPwd ? 'Hide Password' : 'Show Password'} onClick={() => setShowPwd(!showPwd)}>
+                                                                <i className={`bi bi-eye${showPwd ? '-slash' : ''}`} style={{ fontSize: '0.85rem' }}></i>
+                                                            </button>
+                                                            <button className="btn btn-sm btn-white border shadow-xs text-secondary p-1.5 rounded-2" title="Copy Password" onClick={() => { navigator.clipboard.writeText(student.system_pwd || 'student123'); notify.success('Password copied'); }}>
+                                                                <i className="bi bi-copy" style={{ fontSize: '0.85rem' }}></i>
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            ) : (
+                                                <button className="btn btn-sm btn-outline-primary w-100 py-2 rounded-3 fw-bold" style={{ fontSize: '0.78rem' }} onClick={handleGenerateCredentials}>
+                                                    <i className="bi bi-key me-1"></i>Generate Login Credentials
+                                                </button>
+                                            )}
                                         </div>
-                                    </div>
-                                <InfoRow icon="bi-person" label="Gender" value={student.gender} />
-                                <InfoRow icon="bi-calendar-event" label="Date of Birth" value={new Date(student.dob).toLocaleDateString()} />
-                                <InfoRow icon="bi-droplet" label="Blood Group" value={student.blood_group} />
-                                <InfoRow icon="bi-telephone" label="Mobile" value={student.student_mobile || student.mobile_no} />
-                                {student.family_id && (
-                                    <div className="d-flex align-items-center mb-3">
-                                        <div className="me-3 text-secondary" style={{ width: '24px' }}>
-                                            <i className="bi bi-people-fill fs-5"></i>
-                                        </div>
-                                        <div>
-                                            <small className="text-muted d-block text-uppercase" style={{ fontSize: '0.7rem', letterSpacing: '1px' }}>Family ID</small>
-                                            <div className="fw-medium text-dark">
-                                                <span className="badge bg-info bg-opacity-10 text-info border border-info">{student.family_id}</span>
+
+                                        <InfoRow icon="bi-person" label="Gender" value={student.gender} />
+                                        <InfoRow icon="bi-calendar-event" label="Date of Birth" value={new Date(student.dob).toLocaleDateString()} />
+                                        <InfoRow icon="bi-droplet" label="Blood Group" value={student.blood_group} />
+                                        <InfoRow icon="bi-telephone" label="Mobile" value={student.student_mobile || student.mobile_no} />
+                                        {student.family_id && (
+                                            <div className="d-flex align-items-center mb-3">
+                                                <div className="me-3 text-secondary" style={{ width: '24px' }}>
+                                                    <i className="bi bi-people-fill fs-5"></i>
+                                                </div>
+                                                <div>
+                                                    <small className="text-muted d-block text-uppercase" style={{ fontSize: '0.7rem', letterSpacing: '1px' }}>Family ID</small>
+                                                    <div className="fw-medium text-dark">
+                                                        <span className="badge bg-info bg-opacity-10 text-info border border-info">{student.family_id}</span>
+                                                    </div>
+                                                </div>
                                             </div>
+                                        )}
+                                        <hr className="text-secondary opacity-25" />
+                                        <div className="text-center text-success fw-bold py-2">
+                                            <i className="bi bi-shield-check me-2"></i>Student Profile Verified
                                         </div>
+
+                                        {(student?.student_id || params.id) && (
+                                            <div className="mt-2 pt-1">
+                                                <button
+                                                    onClick={() => router.push(`/students/edit/${student?.student_id || params.id}`)}
+                                                    className="btn w-100 py-2.5 rounded-3 fw-bold shadow-sm d-flex align-items-center justify-content-center gap-2 text-white"
+                                                    style={{
+                                                        background: 'linear-gradient(135deg, #195053 0%, #1e3644 100%)',
+                                                        border: 'none',
+                                                        fontSize: '0.85rem',
+                                                        letterSpacing: '0.3px',
+                                                        boxShadow: '0 4px 12px rgba(25, 80, 83, 0.25)',
+                                                        transition: 'all 0.2s ease',
+                                                        cursor: 'pointer'
+                                                    }}
+                                                >
+                                                    <i className="bi bi-pencil-square fs-6"></i>
+                                                    <span>Edit Student Profile</span>
+                                                </button>
+                                            </div>
+                                        )}
                                     </div>
-                                )}
-                                <hr className="text-secondary opacity-25" />
-                                <div className="d-grid gap-2">
-                                    {hasPermission('students', 'write') && (
-                                    <button className="btn btn-primary" onClick={() => router.push(`/students/edit/${student.student_id}`)} style={{ backgroundColor: 'var(--primary-dark)' }}>
-                                        <i className="bi bi-pencil-square me-2"></i>Edit Profile
-                                    </button>
-                                    )}
-                                     {hasPermission('students', 'write') && (
-                                     <button className={`btn btn-outline-${student.status === 'Active' ? 'danger' : 'success'}`} onClick={handleToggleStatus}>
-                                        <i className={`bi bi-${student.status === 'Active' ? 'slash-circle' : 'check-circle'} me-2`}></i>
-                                        {student.status === 'Active' ? 'Mark Inactive' : 'Mark Active'}
-                                    </button>
-                                    )}
                                 </div>
                             </div>
-                        </div>
 
-                        {/* Fees Card */}
-                         <div className="card border-0 shadow-sm rounded-4 mb-4 bg-white">
-                            <div className="card-body p-4 text-center">
-                                <div className="avatar-placeholder bg-success bg-opacity-10 text-success rounded-circle mx-auto mb-3 d-flex align-items-center justify-content-center" style={{width:'60px', height:'60px'}}>
-                                    <i className={`bi ${(student.family_size || 1) > 1 ? 'bi-people-fill' : 'bi-wallet2'} fs-3`}></i>
-                                </div>
-                                {(student.family_size || 1) > 1 ? (
-                                    <>
-                                        <div className="small text-muted text-uppercase">Family Monthly Fee</div>
-                                        <h3 className="fw-bold text-dark my-1">{fmt(student.family_fee || 0)}</h3>
-                                        <div className="badge bg-warning bg-opacity-10 text-warning mt-2 border border-warning">
-                                            <i className="bi bi-people-fill me-1"></i>{student.family_size} members
+                            {/* Fees Card */}
+                            <div className="col-12 col-md-6 col-lg-12">
+                                <div className="card border-0 shadow-sm rounded-4 bg-white h-100">
+                                    <div className="card-body p-4 text-center d-flex flex-column justify-content-center">
+                                        <div className="avatar-placeholder bg-success bg-opacity-10 text-success rounded-circle mx-auto mb-3 d-flex align-items-center justify-content-center" style={{ width: '56px', height: '56px' }}>
+                                            <i className={`bi ${(student.family_size || 1) > 1 ? 'bi-people-fill' : 'bi-wallet2'} fs-3`}></i>
                                         </div>
-                                    </>
-                                ) : (
-                                    <>
-                                        <div className="small text-muted text-uppercase">Monthly Fee</div>
-                                        <h3 className="fw-bold text-dark my-1">{fmt(student.monthly_fee || 0)}</h3>
-                                        <div className="badge bg-success bg-opacity-10 text-success mt-2">Individual</div>
-                                    </>
-                                )}
+                                        {(student.family_size || 1) > 1 ? (
+                                            <>
+                                                <div className="small text-muted text-uppercase">Family Monthly Fee</div>
+                                                <h3 className="fw-bold text-dark my-1">{fmt(student.family_fee || 0)}</h3>
+                                                <div className="badge bg-warning bg-opacity-10 text-warning mt-2 border border-warning">
+                                                    <i className="bi bi-people-fill me-1"></i>{student.family_size} members
+                                                </div>
+                                            </>
+                                        ) : (
+                                            <>
+                                                <div className="small text-muted text-uppercase">Monthly Fee</div>
+                                                <h3 className="fw-bold text-dark my-1">{fmt(student.monthly_fee || 0)}</h3>
+                                                <div className="badge bg-success bg-opacity-10 text-success mt-2">Individual</div>
+                                            </>
+                                        )}
+                                    </div>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -459,22 +522,47 @@ const getWaLink = (phone: string) => {
                     {/* MAIN CONTENT */}
                     <div className="col-lg-9 animate__animated animate__fadeInUp">
                         <div className="card border-0 shadow-sm rounded-4 overflow-hidden" style={{ minHeight: '600px' }}>
-                            <div className="card-header bg-white border-bottom-0 p-0">
-                                <ul className="nav nav-tabs nav-fill" role="tablist">
-                                    {['overview', 'academic', 'family', 'fees', 'attendance', 'documents'].map(tab => (
-                                        <li className="nav-item" key={tab}>
-                                            <button 
-                                                className={`nav-link py-3 fw-bold text-uppercase border-0 rounded-0 ${activeTab === tab ? 'active border-bottom border-primary border-3 text-primary' : 'text-muted'}`}
-                                                onClick={() => setActiveTab(tab)}
-                                                style={{ fontSize: '0.85rem', letterSpacing: '1px' }}
+                            {/* Sleek Modern Horizontal Scrollable Tab Bar */}
+                            <div className="card-header bg-white border-bottom p-2.5">
+                                <div
+                                    className="d-flex align-items-center gap-2 overflow-x-auto text-nowrap scrollbar-none"
+                                    style={{
+                                        WebkitOverflowScrolling: 'touch',
+                                        scrollbarWidth: 'none',
+                                        msOverflowStyle: 'none'
+                                    }}
+                                >
+                                    {[
+                                        { id: 'overview', label: 'Overview', icon: 'bi-person-badge-fill' },
+                                        { id: 'academic', label: 'Academics', icon: 'bi-journal-bookmark-fill' },
+                                        { id: 'family', label: 'Siblings', icon: 'bi-people-fill' },
+                                        { id: 'fees', label: 'Fee History', icon: 'bi-receipt-cutoff' },
+                                        { id: 'attendance', label: 'Attendance', icon: 'bi-calendar-check-fill' },
+                                        { id: 'documents', label: 'Documents', icon: 'bi-folder2-open' }
+                                    ].map(tab => {
+                                        const isActive = activeTab === tab.id;
+                                        return (
+                                            <button
+                                                key={tab.id}
+                                                onClick={() => setActiveTab(tab.id)}
+                                                className="btn btn-sm d-inline-flex align-items-center gap-2 px-3 py-2 rounded-3 fw-bold transition-all border-0"
+                                                style={{
+                                                    fontSize: '0.85rem',
+                                                    letterSpacing: '0.2px',
+                                                    backgroundColor: isActive ? 'var(--primary-teal)' : '#f8fafc',
+                                                    color: isActive ? '#ffffff' : '#64748b',
+                                                    boxShadow: isActive ? '0 4px 12px rgba(25, 80, 83, 0.25)' : 'none',
+                                                    border: isActive ? '1px solid var(--primary-teal)' : '1px solid #e2e8f0',
+                                                }}
                                             >
-                                                {tab}
+                                                <i className={`bi ${tab.icon}`} style={{ fontSize: '0.95rem', color: isActive ? '#ffffff' : '#64748b' }}></i>
+                                                <span>{tab.label}</span>
                                             </button>
-                                        </li>
-                                    ))}
-                                </ul>
+                                        );
+                                    })}
+                                </div>
                             </div>
-                            
+
                             <div className="card-body p-4 p-lg-5 bg-light bg-opacity-50">
                                 {activeTab === 'overview' && (
                                     <div className="animate__animated animate__fadeIn">
@@ -507,11 +595,11 @@ const getWaLink = (phone: string) => {
                                     <div className="animate__animated animate__fadeIn">
                                         {acadLoading ? (
                                             <div className="text-center py-5 text-muted">
-                                                <span className="spinner-border spinner-border-sm me-2"/>Loading academic data…
+                                                <span className="spinner-border spinner-border-sm me-2" />Loading academic data…
                                             </div>
                                         ) : !acad ? (
                                             <div className="text-center py-5 text-muted">
-                                                <i className="bi bi-exclamation-circle fs-2 d-block mb-2"/>
+                                                <i className="bi bi-exclamation-circle fs-2 d-block mb-2" />
                                                 <p>Failed to load academic performance.</p>
                                                 <button className="btn btn-sm btn-outline-primary" onClick={fetchAcademics}>Retry</button>
                                             </div>
@@ -520,24 +608,24 @@ const getWaLink = (phone: string) => {
                                                 {/* ── Prediction Banner ─────────────────────────────────── */}
                                                 {acad.prediction && (() => {
                                                     const p = acad.prediction;
-                                                    const levelColors: Record<string,{bg:string;text:string;border:string}> = {
-                                                        'Outstanding': { bg:'#e8f5e9', text:'#1b5e20', border:'#4caf50' },
-                                                        'Excellent':   { bg:'#e3f2fd', text:'#0d47a1', border:'#2196f3' },
-                                                        'Good':        { bg:'#e8f5e9', text:'#2e7d32', border:'#66bb6a' },
-                                                        'Average':     { bg:'#fff8e1', text:'#f57f17', border:'#ffc107' },
-                                                        'Below Average':{ bg:'#fff3e0', text:'#e65100', border:'#ff9800' },
-                                                        'Poor':        { bg:'#ffebee', text:'#b71c1c', border:'#ef5350' },
-                                                        'No Data':     { bg:'#f5f5f5', text:'#616161', border:'#bdbdbd' },
+                                                    const levelColors: Record<string, { bg: string; text: string; border: string }> = {
+                                                        'Outstanding': { bg: '#e8f5e9', text: '#1b5e20', border: '#4caf50' },
+                                                        'Excellent': { bg: '#e3f2fd', text: '#0d47a1', border: '#2196f3' },
+                                                        'Good': { bg: '#e8f5e9', text: '#2e7d32', border: '#66bb6a' },
+                                                        'Average': { bg: '#fff8e1', text: '#f57f17', border: '#ffc107' },
+                                                        'Below Average': { bg: '#fff3e0', text: '#e65100', border: '#ff9800' },
+                                                        'Poor': { bg: '#ffebee', text: '#b71c1c', border: '#ef5350' },
+                                                        'No Data': { bg: '#f5f5f5', text: '#616161', border: '#bdbdbd' },
                                                     };
-                                                    const trendIcon: Record<string,string> = {
-                                                        improving:'bi-graph-up-arrow text-success',
-                                                        declining:'bi-graph-down-arrow text-danger',
-                                                        stable:'bi-dash-lg text-warning',
-                                                        insufficient_data:'bi-question-circle text-muted'
+                                                    const trendIcon: Record<string, string> = {
+                                                        improving: 'bi-graph-up-arrow text-success',
+                                                        declining: 'bi-graph-down-arrow text-danger',
+                                                        stable: 'bi-dash-lg text-warning',
+                                                        insufficient_data: 'bi-question-circle text-muted'
                                                     };
-                                                    const trendLabel: Record<string,string> = {
-                                                        improving:'Improving', declining:'Declining',
-                                                        stable:'Stable', insufficient_data:'Not Enough Data'
+                                                    const trendLabel: Record<string, string> = {
+                                                        improving: 'Improving', declining: 'Declining',
+                                                        stable: 'Stable', insufficient_data: 'Not Enough Data'
                                                     };
                                                     const col = levelColors[p.level] || levelColors['No Data'];
                                                     return (
@@ -549,7 +637,7 @@ const getWaLink = (phone: string) => {
                                                                     {p.composite_score !== null && (
                                                                         <div className="badge rounded-pill mt-1 px-3 py-2 fs-6 fw-bold"
                                                                             style={{ background: col.border, color: '#fff' }}>
-                                                                            {p.composite_grade} — {p.composite_score}%
+                                                                            {p.composite_grade} {p.composite_score}%
                                                                         </div>
                                                                     )}
                                                                     <div className="small text-muted mt-2">Weighted score (terms 65% · tests 25% · attendance 10%)</div>
@@ -557,17 +645,17 @@ const getWaLink = (phone: string) => {
                                                                 <div className="col-md-4 border-end">
                                                                     <div className="fw-bold small text-muted text-uppercase mb-2">Component Breakdown</div>
                                                                     {[
-                                                                        { label: 'Term Marks Avg',  val: p.term_avg,       icon: 'bi-journal-check', color: '#2196f3' },
-                                                                        { label: 'Test Marks Avg',  val: p.test_avg,       icon: 'bi-pencil-square', color: '#9c27b0' },
-                                                                        { label: 'Attendance',      val: p.attendance_pct, icon: 'bi-calendar-check', color: '#4caf50' },
+                                                                        { label: 'Term Marks Avg', val: p.term_avg, icon: 'bi-journal-check', color: '#2196f3' },
+                                                                        { label: 'Test Marks Avg', val: p.test_avg, icon: 'bi-pencil-square', color: '#9c27b0' },
+                                                                        { label: 'Attendance', val: p.attendance_pct, icon: 'bi-calendar-check', color: '#4caf50' },
                                                                     ].map(item => (
                                                                         <div key={item.label} className="d-flex align-items-center mb-2">
-                                                                            <i className={`bi ${item.icon} me-2`} style={{ color: item.color, width: 18 }}/>
+                                                                            <i className={`bi ${item.icon} me-2`} style={{ color: item.color, width: 18 }} />
                                                                             <span className="small text-muted flex-grow-1">{item.label}</span>
                                                                             {item.val !== null ? (
                                                                                 <>
                                                                                     <div className="progress flex-grow-1 mx-2" style={{ height: 6, borderRadius: 4 }}>
-                                                                                        <div className="progress-bar" style={{ width: `${item.val}%`, background: item.color, borderRadius: 4 }}/>
+                                                                                        <div className="progress-bar" style={{ width: `${item.val}%`, background: item.color, borderRadius: 4 }} />
                                                                                     </div>
                                                                                     <span className="fw-bold small" style={{ color: item.color, minWidth: 42, textAlign: 'right' }}>{item.val}%</span>
                                                                                 </>
@@ -578,7 +666,7 @@ const getWaLink = (phone: string) => {
                                                                 <div className="col-md-4 text-center">
                                                                     <div className="fw-bold small text-muted text-uppercase mb-1">Trend</div>
                                                                     <div className="d-flex align-items-center justify-content-center gap-2 mb-2">
-                                                                        <i className={`bi ${trendIcon[p.trend]} fs-4`}/>
+                                                                        <i className={`bi ${trendIcon[p.trend]} fs-4`} />
                                                                         <span className="fw-bold fs-6">{trendLabel[p.trend]}</span>
                                                                     </div>
                                                                     {p.predicted_next !== null && (
@@ -586,7 +674,7 @@ const getWaLink = (phone: string) => {
                                                                             style={{ background: 'rgba(255,255,255,0.6)', border: `1px solid ${col.border}` }}>
                                                                             <div className="small text-muted">Predicted Next Term</div>
                                                                             <div className="fw-bold fs-5" style={{ color: col.text }}>
-                                                                                {p.predicted_grade} — {p.predicted_next}%
+                                                                                {p.predicted_grade} {p.predicted_next}%
                                                                             </div>
                                                                         </div>
                                                                     )}
@@ -602,18 +690,20 @@ const getWaLink = (phone: string) => {
                                                 {/* ── Sub-tabs ──────────────────────────────────────────── */}
                                                 <div className="d-flex gap-2 mb-4 flex-wrap">
                                                     {([
-                                                        { key: 'terms',      label: 'Term Exams',  icon: 'bi-journal-check', count: acad.terms?.length },
-                                                        { key: 'tests',      label: 'Tests & Quizzes', icon: 'bi-pencil-square',
-                                                          count: acad.test_subjects?.reduce((a: number, s: any) => a + s.tests.length, 0) },
+                                                        { key: 'terms', label: 'Term Exams', icon: 'bi-journal-check', count: acad.terms?.length },
+                                                        {
+                                                            key: 'tests', label: 'Tests & Quizzes', icon: 'bi-pencil-square',
+                                                            count: acad.test_subjects?.reduce((a: number, s: any) => a + s.tests.length, 0)
+                                                        },
                                                         { key: 'prediction', label: 'Performance Analysis', icon: 'bi-bar-chart-line-fill' },
-                                                    ] as {key:any;label:string;icon:string;count?:number}[]).map(t => (
+                                                    ] as { key: any; label: string; icon: string; count?: number }[]).map(t => (
                                                         <button
                                                             key={t.key}
                                                             className={`btn btn-sm fw-semibold ${acadTab === t.key ? 'btn-primary' : 'btn-outline-secondary'}`}
                                                             style={{ borderRadius: 20 }}
                                                             onClick={() => setAcadTab(t.key)}
                                                         >
-                                                            <i className={`bi ${t.icon} me-1`}/>
+                                                            <i className={`bi ${t.icon} me-1`} />
                                                             {t.label}
                                                             {t.count !== undefined && (
                                                                 <span className={`badge rounded-pill ms-1 ${acadTab === t.key ? 'bg-white text-primary' : 'bg-secondary'}`}>
@@ -628,7 +718,7 @@ const getWaLink = (phone: string) => {
                                                 {acadTab === 'terms' && (
                                                     acad.terms?.length === 0 ? (
                                                         <div className="text-center py-5 text-muted">
-                                                            <i className="bi bi-journal fs-1 opacity-50 d-block mb-2"/>
+                                                            <i className="bi bi-journal fs-1 opacity-50 d-block mb-2" />
                                                             No term marks recorded yet.
                                                         </div>
                                                     ) : (
@@ -639,7 +729,7 @@ const getWaLink = (phone: string) => {
                                                                         style={{ borderLeft: `5px solid ${gradeColor(term.term_grade)}`, background: '#fff' }}>
                                                                         <div>
                                                                             <div className="fw-bold" style={{ color: 'var(--primary-dark)' }}>
-                                                                                <i className="bi bi-calendar3 me-2"/>
+                                                                                <i className="bi bi-calendar3 me-2" />
                                                                                 {term.term_name}
                                                                                 <span className="ms-2 text-muted fw-normal small">— {term.year_name}</span>
                                                                             </div>
@@ -652,10 +742,10 @@ const getWaLink = (phone: string) => {
                                                                             <div>
                                                                                 <div className="small text-muted text-end">{term.term_percentage}%</div>
                                                                                 <div className="progress mt-1" style={{ height: 6, width: 80, borderRadius: 4 }}>
-                                                                                    <div className="progress-bar" style={{ width: `${term.term_percentage}%`, background: gradeColor(term.term_grade), borderRadius: 4 }}/>
+                                                                                    <div className="progress-bar" style={{ width: `${term.term_percentage}%`, background: gradeColor(term.term_grade), borderRadius: 4 }} />
                                                                                 </div>
                                                                             </div>
-                                                                            <GradeBadge grade={term.term_grade}/>
+                                                                            <GradeBadge grade={term.term_grade} />
                                                                         </div>
                                                                     </div>
                                                                     <div className="card-body p-0">
@@ -684,13 +774,13 @@ const getWaLink = (phone: string) => {
                                                                                             <td className="text-center">
                                                                                                 <div className="d-flex align-items-center justify-content-center gap-2">
                                                                                                     <div className="progress" style={{ height: 6, width: 60, borderRadius: 4 }}>
-                                                                                                        <div className="progress-bar" style={{ width: `${sub.percentage}%`, background: gradeColor(sub.grade), borderRadius: 4 }}/>
+                                                                                                        <div className="progress-bar" style={{ width: `${sub.percentage}%`, background: gradeColor(sub.grade), borderRadius: 4 }} />
                                                                                                     </div>
                                                                                                     <span className="small fw-semibold" style={{ color: gradeColor(sub.grade), minWidth: 38 }}>{sub.percentage}%</span>
                                                                                                 </div>
                                                                                             </td>
                                                                                             <td className="text-center pe-4">
-                                                                                                <GradeBadge grade={sub.grade}/>
+                                                                                                <GradeBadge grade={sub.grade} />
                                                                                             </td>
                                                                                         </tr>
                                                                                     ))}
@@ -703,7 +793,7 @@ const getWaLink = (phone: string) => {
                                                                                         <td className="text-center">
                                                                                             <span className="fw-bold" style={{ color: gradeColor(term.term_grade) }}>{term.term_percentage}%</span>
                                                                                         </td>
-                                                                                        <td className="text-center pe-4"><GradeBadge grade={term.term_grade}/></td>
+                                                                                        <td className="text-center pe-4"><GradeBadge grade={term.term_grade} /></td>
                                                                                     </tr>
                                                                                 </tfoot>
                                                                             </table>
@@ -719,7 +809,7 @@ const getWaLink = (phone: string) => {
                                                 {acadTab === 'tests' && (
                                                     acad.test_subjects?.length === 0 ? (
                                                         <div className="text-center py-5 text-muted">
-                                                            <i className="bi bi-pencil fs-1 opacity-50 d-block mb-2"/>
+                                                            <i className="bi bi-pencil fs-1 opacity-50 d-block mb-2" />
                                                             No test marks recorded yet.
                                                         </div>
                                                     ) : (
@@ -729,7 +819,7 @@ const getWaLink = (phone: string) => {
                                                                     <div className="card-header d-flex justify-content-between align-items-center py-3"
                                                                         style={{ borderLeft: `5px solid ${gradeColor(sub.avg_grade)}`, background: '#fff' }}>
                                                                         <div className="fw-bold" style={{ color: 'var(--primary-dark)' }}>
-                                                                            <i className="bi bi-book me-2"/>
+                                                                            <i className="bi bi-book me-2" />
                                                                             {sub.subject_name}
                                                                             {sub.subject_code && <span className="ms-2 text-muted fw-normal small">({sub.subject_code})</span>}
                                                                         </div>
@@ -738,7 +828,7 @@ const getWaLink = (phone: string) => {
                                                                                 <div className="small text-muted">Tests Avg</div>
                                                                                 <div className="fw-bold">{sub.avg_percentage}%</div>
                                                                             </div>
-                                                                            <GradeBadge grade={sub.avg_grade}/>
+                                                                            <GradeBadge grade={sub.avg_grade} />
                                                                         </div>
                                                                     </div>
                                                                     <div className="card-body p-0">
@@ -768,10 +858,10 @@ const getWaLink = (phone: string) => {
                                                                                             <td className="text-center">
                                                                                                 <span className="fw-semibold small" style={{ color: gradeColor(t.grade) }}>{t.percentage}%</span>
                                                                                             </td>
-                                                                                            <td className="text-center"><GradeBadge grade={t.grade}/></td>
+                                                                                            <td className="text-center"><GradeBadge grade={t.grade} /></td>
                                                                                             <td className="small text-muted">{t.remarks || '—'}</td>
                                                                                             <td className="pe-4 small text-muted">
-                                                                                                {new Date(t.test_date).toLocaleDateString('en-GB', { day:'2-digit', month:'short', year:'numeric' })}
+                                                                                                {new Date(t.test_date).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}
                                                                                             </td>
                                                                                         </tr>
                                                                                     ))}
@@ -795,7 +885,7 @@ const getWaLink = (phone: string) => {
                                                             <div className="col-12">
                                                                 <div className="card border-0 shadow-sm rounded-4 overflow-hidden">
                                                                     <div className="card-header py-3 fw-bold" style={{ borderLeft: '5px solid var(--primary-teal)', background: '#fff', color: 'var(--primary-dark)' }}>
-                                                                        <i className="bi bi-cpu me-2" style={{ color: 'var(--primary-teal)' }}/>
+                                                                        <i className="bi bi-cpu me-2" style={{ color: 'var(--primary-teal)' }} />
                                                                         How Prediction Works
                                                                     </div>
                                                                     <div className="card-body py-3">
@@ -809,7 +899,7 @@ const getWaLink = (phone: string) => {
                                                                                 <div key={item.title} className="col-md-6">
                                                                                     <div className="d-flex gap-3 p-3 rounded-3" style={{ background: item.color + '12', border: `1px solid ${item.color}30` }}>
                                                                                         <div className="flex-shrink-0 d-flex align-items-start pt-1">
-                                                                                            <i className={`bi ${item.icon} fs-5`} style={{ color: item.color }}/>
+                                                                                            <i className={`bi ${item.icon} fs-5`} style={{ color: item.color }} />
                                                                                         </div>
                                                                                         <div>
                                                                                             <div className="fw-bold small" style={{ color: item.color }}>{item.title}</div>
@@ -827,7 +917,7 @@ const getWaLink = (phone: string) => {
                                                             <div className="col-md-7">
                                                                 <div className="card border-0 shadow-sm rounded-4 h-100">
                                                                     <div className="card-header py-3 fw-bold" style={{ borderLeft: '5px solid #2196f3', background: '#fff', color: 'var(--primary-dark)' }}>
-                                                                        <i className="bi bi-bar-chart-fill me-2 text-primary"/>Term Performance Trend
+                                                                        <i className="bi bi-bar-chart-fill me-2 text-primary" />Term Performance Trend
                                                                     </div>
                                                                     <div className="card-body">
                                                                         {termPcts.length === 0 ? (
@@ -839,7 +929,7 @@ const getWaLink = (phone: string) => {
                                                                                         <div className="d-flex justify-content-between small mb-1">
                                                                                             <span className="fw-semibold text-muted">{term.term_name} <span className="fw-normal">({term.year_name})</span></span>
                                                                                             <span className="fw-bold" style={{ color: gradeColor(term.term_grade) }}>
-                                                                                                {term.term_percentage}% — {term.term_grade}
+                                                                                                {term.term_percentage}% {term.term_grade}
                                                                                             </span>
                                                                                         </div>
                                                                                         <div className="progress" style={{ height: 20, borderRadius: 6 }}>
@@ -856,9 +946,9 @@ const getWaLink = (phone: string) => {
                                                                                 {p.predicted_next !== null && (
                                                                                     <div className="mt-2" style={{ borderTop: '2px dashed #ccc', paddingTop: 8 }}>
                                                                                         <div className="d-flex justify-content-between small mb-1">
-                                                                                            <span className="text-muted fst-italic"><i className="bi bi-stars me-1"/>Predicted Next Term</span>
+                                                                                            <span className="text-muted fst-italic"><i className="bi bi-stars me-1" />Predicted Next Term</span>
                                                                                             <span className="fw-bold" style={{ color: gradeColor(p.predicted_grade!) }}>
-                                                                                                {p.predicted_next}% — {p.predicted_grade}
+                                                                                                {p.predicted_next}% {p.predicted_grade}
                                                                                             </span>
                                                                                         </div>
                                                                                         <div className="progress" style={{ height: 20, borderRadius: 6, border: '2px dashed #ccc', background: 'transparent' }}>
@@ -879,24 +969,24 @@ const getWaLink = (phone: string) => {
                                                             <div className="col-md-5">
                                                                 <div className="card border-0 shadow-sm rounded-4 h-100">
                                                                     <div className="card-header py-3 fw-bold" style={{ borderLeft: '5px solid #9c27b0', background: '#fff', color: 'var(--primary-dark)' }}>
-                                                                        <i className="bi bi-trophy me-2" style={{ color: '#9c27b0' }}/>Performance Summary
+                                                                        <i className="bi bi-trophy me-2" style={{ color: '#9c27b0' }} />Performance Summary
                                                                     </div>
                                                                     <div className="card-body d-flex flex-column gap-3">
                                                                         {[
-                                                                            { label: 'Composite Score',     val: p.composite_score !== null ? `${p.composite_score}%` : '—', grade: p.composite_grade, icon: 'bi-star-fill', color: '#ff9800' },
-                                                                            { label: 'Term Marks Average',  val: p.term_avg  !== null ? `${p.term_avg}%`  : '—', grade: p.term_avg  !== null ? gradeLabel(p.term_avg)  : null, icon: 'bi-journal-check', color: '#2196f3' },
-                                                                            { label: 'Test Marks Average',  val: p.test_avg  !== null ? `${p.test_avg}%`  : '—', grade: p.test_avg  !== null ? gradeLabel(p.test_avg)  : null, icon: 'bi-pencil-square', color: '#9c27b0' },
-                                                                            { label: 'Attendance Rate',     val: p.attendance_pct !== null ? `${p.attendance_pct}%` : '—', grade: null, icon: 'bi-calendar-check', color: '#4caf50' },
-                                                                            { label: 'Trend Slope',         val: `${p.trend_slope > 0 ? '+' : ''}${p.trend_slope}`, grade: null, icon: 'bi-graph-up-arrow', color: p.trend === 'improving' ? '#4caf50' : p.trend === 'declining' ? '#ef5350' : '#ff9800' },
+                                                                            { label: 'Composite Score', val: p.composite_score !== null ? `${p.composite_score}%` : '—', grade: p.composite_grade, icon: 'bi-star-fill', color: '#ff9800' },
+                                                                            { label: 'Term Marks Average', val: p.term_avg !== null ? `${p.term_avg}%` : '—', grade: p.term_avg !== null ? gradeLabel(p.term_avg) : null, icon: 'bi-journal-check', color: '#2196f3' },
+                                                                            { label: 'Test Marks Average', val: p.test_avg !== null ? `${p.test_avg}%` : '—', grade: p.test_avg !== null ? gradeLabel(p.test_avg) : null, icon: 'bi-pencil-square', color: '#9c27b0' },
+                                                                            { label: 'Attendance Rate', val: p.attendance_pct !== null ? `${p.attendance_pct}%` : '—', grade: null, icon: 'bi-calendar-check', color: '#4caf50' },
+                                                                            { label: 'Trend Slope', val: `${p.trend_slope > 0 ? '+' : ''}${p.trend_slope}`, grade: null, icon: 'bi-graph-up-arrow', color: p.trend === 'improving' ? '#4caf50' : p.trend === 'declining' ? '#ef5350' : '#ff9800' },
                                                                             { label: 'Predicted Next Term', val: p.predicted_next !== null ? `${p.predicted_next}%` : '—', grade: p.predicted_grade, icon: 'bi-stars', color: '#607d8b' },
                                                                         ].map(row => (
                                                                             <div key={row.label} className="d-flex align-items-center gap-3 p-2 rounded-3" style={{ background: row.color + '0f' }}>
-                                                                                <i className={`bi ${row.icon} fs-5`} style={{ color: row.color, width: 20 }}/>
+                                                                                <i className={`bi ${row.icon} fs-5`} style={{ color: row.color, width: 20 }} />
                                                                                 <div className="flex-grow-1">
                                                                                     <div className="small text-muted">{row.label}</div>
                                                                                     <div className="fw-bold" style={{ color: row.color }}>{row.val}</div>
                                                                                 </div>
-                                                                                {row.grade && <GradeBadge grade={row.grade}/>}
+                                                                                {row.grade && <GradeBadge grade={row.grade} />}
                                                                             </div>
                                                                         ))}
                                                                     </div>
@@ -926,7 +1016,7 @@ const getWaLink = (phone: string) => {
                                             </div>
                                             <div className="col-md-6">
                                                 <div className="card border-0 shadow-sm rounded-4 h-100 overflow-hidden">
-                                                    <div className="card-header bg-pink-500 text-white fw-bold" style={{backgroundColor: '#e83e8c'}}><i className="bi bi-gender-female me-2"></i>Mother</div>
+                                                    <div className="card-header bg-pink-500 text-white fw-bold" style={{ backgroundColor: '#e83e8c' }}><i className="bi bi-gender-female me-2"></i>Mother</div>
                                                     <div className="card-body">
                                                         <InfoRow icon="bi-person" label="Name" value={student.mother_name} />
                                                         <InfoRow icon="bi-telephone" label="Phone" value={student.mother_phone} />
@@ -947,7 +1037,7 @@ const getWaLink = (phone: string) => {
                                                     </div>
                                                 </div>
                                             )}
-                                            
+
                                             {/* Siblings Section */}
                                             <div className="col-12">
                                                 <div className="card border-0 shadow-sm rounded-4 overflow-hidden">
@@ -970,51 +1060,51 @@ const getWaLink = (phone: string) => {
                                                             <div className="row g-3">
                                                                 {siblings.map((sibling: any) => (
                                                                     <div className="col-md-6" key={sibling.student_id}>
-                                                                        <div 
-                                                                            className="card h-100 border-2 hover-shadow transition" 
-                                                                            style={{ 
+                                                                        <div
+                                                                            className="card h-100 border-2 hover-shadow transition"
+                                                                            style={{
                                                                                 cursor: 'pointer',
-                                                                                borderColor: sibling.relation_type === 'blood' ? '#0d6efd' : '#ffc107',
+                                                                                borderColor: sibling.relation_type === 'blood' ? '#0d6efd' : sibling.relation_type === 'cousin' ? '#ffc107' : '#6c757d',
                                                                                 transition: 'all 0.3s ease'
                                                                             }}
                                                                             onClick={() => router.push(`/students/profile/${sibling.student_id}`)}
                                                                         >
-                                                                            <div 
-                                                                                className="card-header border-0 p-3" 
-                                                                                style={{ 
-                                                                                    backgroundColor: sibling.relation_type === 'blood' ? '#e7f1ff' : '#fff3cd' 
+                                                                            <div
+                                                                                className="card-header border-0 p-3"
+                                                                                style={{
+                                                                                    backgroundColor: sibling.relation_type === 'blood' ? '#e7f1ff' : sibling.relation_type === 'cousin' ? '#fff3cd' : '#f8f9fa'
                                                                                 }}
                                                                             >
-                                                                                <span className="badge" style={{ 
-                                                                                    backgroundColor: sibling.relation_type === 'blood' ? '#0d6efd' : '#ffc107',
-                                                                                    color: sibling.relation_type === 'blood' ? 'white' : '#000'
+                                                                                <span className="badge" style={{
+                                                                                    backgroundColor: sibling.relation_type === 'blood' ? '#0d6efd' : sibling.relation_type === 'cousin' ? '#ffc107' : '#6c757d',
+                                                                                    color: sibling.relation_type === 'blood' ? 'white' : sibling.relation_type === 'cousin' ? '#000' : 'white'
                                                                                 }}>
-                                                                                    <i className={`bi ${sibling.relation_type === 'blood' ? 'bi-people-fill' : 'bi-diagram-3-fill'} me-1`}></i>
-                                                                                    {sibling.relation_type === 'blood' ? 'Blood Sibling' : 'Cousin'}
+                                                                                    <i className={`bi ${sibling.relation_type === 'blood' ? 'bi-people-fill' : sibling.relation_type === 'cousin' ? 'bi-diagram-3-fill' : 'bi-person-lines-fill'} me-1`}></i>
+                                                                                    {sibling.relation_type === 'blood' ? 'Blood Sibling' : sibling.relation_type === 'cousin' ? 'Cousin' : 'Family Member'}
                                                                                 </span>
                                                                             </div>
                                                                             <div className="card-body p-3">
                                                                                 <div className="d-flex align-items-center mb-2">
                                                                                     <div className="me-3">
                                                                                         {sibling.image_url ? (
-                                                                                            <img 
-                                                                                                src={`${process.env.NEXT_PUBLIC_API_URL || "https://shmool.onrender.com"}/${sibling.image_url}`} 
+                                                                                            <img
+                                                                                                src={`${process.env.NEXT_PUBLIC_API_URL || "https://shmool.onrender.com"}/${sibling.image_url}`}
                                                                                                 alt={sibling.first_name}
                                                                                                 className="rounded-circle border border-2"
-                                                                                                style={{ 
-                                                                                                    width: '50px', 
-                                                                                                    height: '50px', 
+                                                                                                style={{
+                                                                                                    width: '50px',
+                                                                                                    height: '50px',
                                                                                                     objectFit: 'cover',
-                                                                                                    borderColor: sibling.relation_type === 'blood' ? '#0d6efd' : '#ffc107'
+                                                                                                    borderColor: sibling.relation_type === 'blood' ? '#0d6efd' : sibling.relation_type === 'cousin' ? '#ffc107' : '#6c757d'
                                                                                                 }}
                                                                                             />
                                                                                         ) : (
-                                                                                            <div 
+                                                                                            <div
                                                                                                 className="rounded-circle bg-secondary d-flex align-items-center justify-content-center text-white border border-2"
-                                                                                                style={{ 
-                                                                                                    width: '50px', 
+                                                                                                style={{
+                                                                                                    width: '50px',
                                                                                                     height: '50px',
-                                                                                                    borderColor: sibling.relation_type === 'blood' ? '#0d6efd' : '#ffc107'
+                                                                                                    borderColor: sibling.relation_type === 'blood' ? '#0d6efd' : sibling.relation_type === 'cousin' ? '#ffc107' : '#6c757d'
                                                                                                 }}
                                                                                             >
                                                                                                 <i className="bi bi-person-fill"></i>
@@ -1066,30 +1156,30 @@ const getWaLink = (phone: string) => {
                                     <div className="animate__animated animate__fadeIn">
                                         {/* Monthly Fee Card */}
                                         <div className="row g-4 mb-4">
-{/* Monthly / Family Fee Card */}
-                                        <div className="col-xl-4 col-lg-5">
-                                            <div className="card border-0 shadow-sm rounded-4 text-center overflow-hidden h-100">
-                                                <div className="card-header text-white py-3" style={{ background: 'linear-gradient(135deg, var(--primary-dark), var(--primary-teal))' }}>
-                                                    <i className={`bi ${(student.family_size || 1) > 1 ? 'bi-people-fill' : 'bi-arrow-repeat'} fs-4 d-block mb-1`}></i>
-                                                    <h6 className="mb-0 fw-bold">{(student.family_size || 1) > 1 ? 'Family Monthly Fee' : 'Monthly Fee (Tuition)'}</h6>
-                                                </div>
-                                                <div className="card-body py-4">
-                                                    <div className="fw-bold" style={{ fontSize: '2rem', color: 'var(--primary-teal)' }}>
-                                                        {(student.family_size || 1) > 1 ? fmt(student.family_fee || 0) : fmt(student?.monthly_fee || 0)}
+                                            {/* Monthly / Family Fee Card */}
+                                            <div className="col-xl-4 col-lg-5 col-md-6">
+                                                <div className="card border-0 shadow-sm rounded-4 text-center overflow-hidden h-100">
+                                                    <div className="card-header text-white py-3" style={{ background: 'linear-gradient(135deg, var(--primary-dark), var(--primary-teal))' }}>
+                                                        <i className={`bi ${(student.family_size || 1) > 1 ? 'bi-people-fill' : 'bi-arrow-repeat'} fs-4 d-block mb-1`}></i>
+                                                        <h6 className="mb-0 fw-bold">{(student.family_size || 1) > 1 ? 'Family Monthly Fee' : 'Monthly Fee (Tuition)'}</h6>
                                                     </div>
-                                                    {(student.family_size || 1) > 1 ? (
-                                                        <>
-                                                            <div className="text-muted small mt-1">Shared by {student.family_size} family members</div>
-                                                            <div className="badge bg-warning bg-opacity-10 text-warning border border-warning mt-3 text-wrap px-3 py-2" style={{lineHeight: 1.4}}>
-                                                                <i className="bi bi-people-fill me-1"></i>Family Slip — 1 slip per family
-                                                            </div>
-                                                        </>
-                                                    ) : (
-                                                        <>
-                                                            <div className="text-muted small mt-1">Billed every month</div>
-                                                            <div className="badge bg-success bg-opacity-10 text-success border border-success mt-3 text-wrap px-3 py-2" style={{lineHeight: 1.4}}>Auto-applied on slip generation</div>
-                                                        </>
-                                                    )}
+                                                    <div className="card-body py-4 px-3 d-flex flex-column justify-content-center align-items-center">
+                                                        <div className="fw-bold text-break" style={{ fontSize: 'calc(1.3rem + 0.6vw)', color: 'var(--primary-teal)', lineHeight: 1.2 }}>
+                                                            {(student.family_size || 1) > 1 ? fmt(student.family_fee || 0) : fmt(student?.monthly_fee || 0)}
+                                                        </div>
+                                                        {(student.family_size || 1) > 1 ? (
+                                                            <>
+                                                                <div className="text-muted small mt-1">Shared by {student.family_size} family members</div>
+                                                                <div className="badge bg-warning bg-opacity-10 text-warning border border-warning mt-3 text-wrap px-3 py-2" style={{ maxWidth: '100%', lineHeight: 1.4 }}>
+                                                                    <i className="bi bi-people-fill me-1"></i>Family Slip (1 slip per family)
+                                                                </div>
+                                                            </>
+                                                        ) : (
+                                                            <>
+                                                                <div className="text-muted small mt-1">Billed every month</div>
+                                                                <div className="badge bg-success bg-opacity-10 text-success border border-success mt-3 text-wrap px-3 py-2" style={{ maxWidth: '100%', lineHeight: 1.4 }}>Auto-applied on slip generation</div>
+                                                            </>
+                                                        )}
                                                     </div>
                                                 </div>
                                             </div>
@@ -1172,28 +1262,28 @@ const getWaLink = (phone: string) => {
                                                 </div>
                                                 <div className="card-body p-0">
                                                     <div className="table-responsive">
-                                                    <table className="table table-sm align-middle mb-0">
-                                                        <thead className="bg-light">
-                                                            <tr>
-                                                                <th className="ps-4 py-3">#</th>
-                                                                <th className="py-3">Date</th>
-                                                                <th className="py-3">Amount</th>
-                                                                <th className="py-3">Method</th>
-                                                                <th className="pe-4 py-3">Reference</th>
-                                                            </tr>
-                                                        </thead>
-                                                        <tbody>
-                                                            {admissionPayments.map((p: any, i: number) => (
-                                                                <tr key={p.payment_id}>
-                                                                    <td className="ps-4 text-muted small">{i + 1}</td>
-                                                                    <td className="small">{new Date(p.payment_date).toLocaleDateString()}</td>
-                                                                    <td className="fw-bold text-success">{fmt(p.amount_paid)}</td>
-                                                                    <td><span className="badge bg-light text-dark border">{p.payment_method}</span></td>
-                                                                    <td className="pe-4 text-muted small">{p.reference_no || '—'}</td>
+                                                        <table className="table table-sm align-middle mb-0">
+                                                            <thead className="bg-light">
+                                                                <tr>
+                                                                    <th className="ps-4 py-3">#</th>
+                                                                    <th className="py-3">Date</th>
+                                                                    <th className="py-3">Amount</th>
+                                                                    <th className="py-3">Method</th>
+                                                                    <th className="pe-4 py-3">Reference</th>
                                                                 </tr>
-                                                            ))}
-                                                        </tbody>
-                                                    </table>
+                                                            </thead>
+                                                            <tbody>
+                                                                {admissionPayments.map((p: any, i: number) => (
+                                                                    <tr key={p.payment_id}>
+                                                                        <td className="ps-4 text-muted small">{i + 1}</td>
+                                                                        <td className="small">{new Date(p.payment_date).toLocaleDateString()}</td>
+                                                                        <td className="fw-bold text-success">{fmt(p.amount_paid)}</td>
+                                                                        <td><span className="badge bg-light text-dark border">{p.payment_method}</span></td>
+                                                                        <td className="pe-4 text-muted small">{p.reference_no || '—'}</td>
+                                                                    </tr>
+                                                                ))}
+                                                            </tbody>
+                                                        </table>
                                                     </div>
                                                 </div>
                                             </div>
@@ -1207,7 +1297,7 @@ const getWaLink = (phone: string) => {
                                         <div className="card-header py-3" style={{ borderLeft: '4px solid var(--primary-teal)', backgroundColor: 'white' }}>
                                             <h6 className="fw-bold mb-0" style={{ color: 'var(--primary-dark)' }}>
                                                 <i className="bi bi-calendar-check me-2" style={{ color: 'var(--primary-teal)' }}></i>
-                                                Family Monthly Fee History 
+                                                Family Monthly Fee History
                                             </h6>
                                         </div>
                                         <div className="card-body p-0">
@@ -1226,39 +1316,113 @@ const getWaLink = (phone: string) => {
                                                                 <th>Students & Applied Heads</th>
                                                                 <th className="text-end">Billed</th>
                                                                 <th className="text-end">Received</th>
+                                                                <th className="text-end">Remaining Balance</th>
+                                                                <th className="text-center">Submission Date</th>
                                                                 <th className="text-center pe-4">Status</th>
                                                             </tr>
                                                         </thead>
                                                         <tbody>
-                                                            {familySlips.map((monthSlip, idx) => (
-                                                                <tr key={idx}>
-                                                                    <td className="ps-4 fw-bold text-dark">
-                                                                        {['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][monthSlip.month - 1]} {monthSlip.year}
-                                                                    </td>
-                                                                    <td>
-                                                                        <div className="d-flex flex-column gap-2 py-2">
-                                                                            {monthSlip.students.map((st: any, i: number) => (
-                                                                                <div key={i} className="d-flex flex-column bg-light p-2 rounded-3 border">
-                                                                                    <div>
-                                                                                        <span className="fw-semibold text-dark mx-1 text-uppercase" style={{fontSize: '0.8rem'}}>{st.admission_no}</span>
-                                                                                        <span className="fw-bold text-primary" style={{fontSize: '0.8rem'}}>&bull; {st.name}</span>
-                                                                                    </div>
-                                                                                    <div className="text-muted mt-1" style={{fontSize: '0.75rem'}}>
-                                                                                        {st.heads?.map((h: any) => `${h.head_name} (${fmt(h.amount)})`).join(' • ') || 'No specific heads'}
-                                                                                    </div>
-                                                                                </div>
-                                                                            ))}
-                                                                        </div>
-                                                                    </td>
-                                                                    <td className="text-end fw-semibold" style={{ color: 'var(--primary-dark)' }}>{fmt(monthSlip.family_total_billed)}</td>
-                                                                    <td className="text-end fw-bold" style={{ color: '#0d9e6e' }}>{fmt(monthSlip.family_total_paid)}</td>
-                                                                    <td className="text-center pe-4">
-                                                                        <span className={`badge px-3 py-2 rounded-pill ${monthSlip.status === 'paid' ? 'bg-success bg-opacity-10 text-success border border-success' : monthSlip.status === 'partial' ? 'bg-warning bg-opacity-10 text-warning border border-warning' : 'bg-danger bg-opacity-10 text-danger border border-danger'}`}>
-                                                                            {monthSlip.status.toUpperCase()}
-                                                                        </span>
-                                                                    </td>
-                                                                </tr>
-                                                            ))}
+                                                            {familySlips.map((monthSlip, idx) => {
+                                                                const remainingBalance = Math.max(0, Number(monthSlip.family_total_billed || 0) - Number(monthSlip.family_total_paid || 0));
+                                                                const subDate = monthSlip.last_submission_date
+                                                                    ? new Date(monthSlip.last_submission_date).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
+                                                                    : '—';
+
+                                                                return (
+                                                                    <tr key={idx}>
+                                                                        <td className="ps-4 fw-bold text-dark">
+                                                                            {['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][monthSlip.month - 1]} {monthSlip.year}
+                                                                        </td>
+                                                                        <td>
+                                                                            <div className="d-flex flex-column gap-2 py-2" style={{ minWidth: '280px' }}>
+                                                                                {monthSlip.students.map((st: any, i: number) => {
+                                                                                    const stRemaining = Math.max(0, Number(st.billed || 0) - Number(st.paid || 0));
+                                                                                    const stSubDate = st.last_payment_date
+                                                                                        ? new Date(st.last_payment_date).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
+                                                                                        : '';
+                                                                                    return (
+                                                                                        <div key={i} className="card border shadow-2xs rounded-3 mb-2 overflow-hidden bg-white">
+                                                                                            <div className="card-header bg-light py-2 px-3 d-flex flex-wrap align-items-center justify-content-between gap-2 border-bottom">
+                                                                                                <div className="d-flex align-items-center gap-2">
+                                                                                                    <span className="badge bg-primary bg-opacity-10 text-primary border border-primary-subtle font-monospace fw-bold" style={{ fontSize: '0.75rem' }}>
+                                                                                                        {st.admission_no}
+                                                                                                    </span>
+                                                                                                    <span className="fw-bold text-dark" style={{ fontSize: '0.85rem' }}>
+                                                                                                        {st.name}
+                                                                                                    </span>
+                                                                                                    {st.class_name && (
+                                                                                                        <span className="badge bg-secondary-subtle text-secondary small">
+                                                                                                            {st.class_name} {st.section_name ? `- ${st.section_name}` : ''}
+                                                                                                        </span>
+                                                                                                    )}
+                                                                                                </div>
+                                                                                                <div className="d-flex align-items-center gap-2 flex-wrap" style={{ fontSize: '0.75rem' }}>
+                                                                                                    <span className="badge bg-light text-dark border">
+                                                                                                        Billed: <strong>{fmt(st.billed)}</strong>
+                                                                                                    </span>
+                                                                                                    <span className="badge bg-success-subtle text-success border border-success-subtle">
+                                                                                                        Paid: <strong>{fmt(st.paid)}</strong>
+                                                                                                    </span>
+                                                                                                    {stRemaining > 0 ? (
+                                                                                                        <span className="badge bg-danger-subtle text-danger border border-danger-subtle fw-bold">
+                                                                                                            Rem: {fmt(stRemaining)}
+                                                                                                        </span>
+                                                                                                    ) : (
+                                                                                                        <span className="badge bg-light text-muted border">Rem: 0</span>
+                                                                                                    )}
+                                                                                                </div>
+                                                                                            </div>
+                                                                                            <div className="card-body p-2 bg-body-tertiary">
+                                                                                                <div className="d-flex flex-wrap align-items-center gap-1">
+                                                                                                    <span className="text-muted fw-semibold small me-1" style={{ fontSize: '0.72rem' }}>
+                                                                                                        <i className="bi bi-tags-fill me-1 text-primary"></i>Applied Heads:
+                                                                                                    </span>
+                                                                                                    {st.heads && st.heads.length > 0 ? (
+                                                                                                        st.heads.map((h: any, hIdx: number) => (
+                                                                                                            <span key={hIdx} className="badge bg-white text-dark border shadow-2xs py-1 px-2 d-inline-flex align-items-center gap-1" style={{ fontSize: '0.72rem', fontWeight: 500 }}>
+                                                                                                                <span className="text-secondary">{h.head_name}:</span>
+                                                                                                                <span className="fw-bold text-success">{fmt(h.amount)}</span>
+                                                                                                            </span>
+                                                                                                        ))
+                                                                                                    ) : (
+                                                                                                        <span className="text-muted italic small" style={{ fontSize: '0.72rem' }}>No specific heads applied</span>
+                                                                                                    )}
+                                                                                                </div>
+                                                                                                {stSubDate && (
+                                                                                                    <div className="mt-1 pt-1 border-top border-dashed text-end" style={{ fontSize: '0.72rem' }}>
+                                                                                                        <span className="text-muted">
+                                                                                                            <i className="bi bi-clock-history me-1 text-info"></i>Submitted: <strong className="text-dark">{stSubDate}</strong>
+                                                                                                        </span>
+                                                                                                    </div>
+                                                                                                )}
+                                                                                            </div>
+                                                                                        </div>
+                                                                                    );
+                                                                                })}
+                                                                            </div>
+                                                                        </td>
+                                                                        <td className="text-end fw-semibold" style={{ color: 'var(--primary-dark)' }}>{fmt(monthSlip.family_total_billed)}</td>
+                                                                        <td className="text-end fw-bold" style={{ color: '#0d9e6e' }}>{fmt(monthSlip.family_total_paid)}</td>
+                                                                        <td className="text-end fw-bold" style={{ color: remainingBalance > 0 ? '#dc3545' : '#6c757d' }}>
+                                                                            {fmt(remainingBalance)}
+                                                                        </td>
+                                                                        <td className="text-center small">
+                                                                            {subDate !== '—' ? (
+                                                                                <span className="badge bg-light text-dark border fw-normal px-2 py-1">
+                                                                                    <i className="bi bi-calendar-check me-1 text-success"></i>{subDate}
+                                                                                </span>
+                                                                            ) : (
+                                                                                <span className="text-muted">—</span>
+                                                                            )}
+                                                                        </td>
+                                                                        <td className="text-center pe-4">
+                                                                            <span className={`badge px-3 py-2 rounded-pill ${monthSlip.status === 'paid' ? 'bg-success bg-opacity-10 text-success border border-success' : monthSlip.status === 'partial' ? 'bg-warning bg-opacity-10 text-warning border border-warning' : 'bg-danger bg-opacity-10 text-danger border border-danger'}`}>
+                                                                                {monthSlip.status.toUpperCase()}
+                                                                            </span>
+                                                                        </td>
+                                                                    </tr>
+                                                                );
+                                                            })}
                                                         </tbody>
                                                     </table>
                                                 </div>
@@ -1278,11 +1442,11 @@ const getWaLink = (phone: string) => {
                                             </h6>
                                             {parseFloat(student.opb_remaining || '0') <= 0 ? (
                                                 <span className="badge rounded-pill bg-success bg-opacity-10 text-success border border-success px-3 py-2">
-                                                    <i className="bi bi-check-circle-fill me-1"/>Fully Cleared
+                                                    <i className="bi bi-check-circle-fill me-1" />Fully Cleared
                                                 </span>
                                             ) : (
                                                 <span className="badge rounded-pill px-3 py-2" style={{ background: '#fde8e8', color: '#e13232', border: '1px solid #e1323244', fontWeight: 600 }}>
-                                                    <i className="bi bi-exclamation-circle-fill me-1"/>
+                                                    <i className="bi bi-exclamation-circle-fill me-1" />
                                                     Remaining: {fmt(student.opb_remaining)}
                                                 </span>
                                             )}
@@ -1321,12 +1485,12 @@ const getWaLink = (phone: string) => {
                                             )}
                                             {student.opb_notes && (
                                                 <p className="text-muted mb-0 mt-2" style={{ fontSize: '0.82rem' }}>
-                                                    <i className="bi bi-sticky me-1" style={{ color: 'var(--accent-orange)' }}/><em>{student.opb_notes}</em>
+                                                    <i className="bi bi-sticky me-1" style={{ color: 'var(--accent-orange)' }} /><em>{student.opb_notes}</em>
                                                 </p>
                                             )}
                                             {parseFloat(student.opb_remaining || '0') > 0 && (
                                                 <div className="alert border-0 rounded-3 mt-3 py-2 px-3 mb-0" style={{ background: 'rgba(254,127,45,0.1)', fontSize: '0.82rem' }}>
-                                                    <i className="bi bi-info-circle me-1" style={{ color: 'var(--accent-orange)' }}/>
+                                                    <i className="bi bi-info-circle me-1" style={{ color: 'var(--accent-orange)' }} />
                                                     OPB is the manually-set prior due. It is collected automatically when fee slips containing the <strong>Previous Balance</strong> head are paid via Collect Fee.
                                                 </div>
                                             )}
@@ -1358,6 +1522,7 @@ const getWaLink = (phone: string) => {
                                                             <div className="col-12">
                                                                 <label className="form-label fw-bold small text-muted">Amount Receiving (PKR) <span className="text-danger">*</span></label>
                                                                 <input type="number" className="form-control fw-bold fs-5" required
+                                                                    onKeyDown={e => ['e', 'E', '+', '-'].includes(e.key) && e.preventDefault()}
                                                                     min="1" max={admissionFee.remaining_amount}
                                                                     value={payAmt} onChange={e => setPayAmt(e.target.value)} />
                                                             </div>
@@ -1381,9 +1546,9 @@ const getWaLink = (phone: string) => {
                                                             <div className="col-12 d-flex gap-2 justify-content-end">
                                                                 <button type="button" className="btn btn-secondary-custom px-4" onClick={() => setShowPayModal(false)}>Cancel</button>
                                                                 {hasPermission('fees', 'write') && (
-                                                                <button type="submit" className="btn btn-primary-custom px-4" disabled={payingFee}>
-                                                                    {payingFee ? <><span className="spinner-border spinner-border-sm me-2"></span>Processing...</> : 'Confirm'}
-                                                                </button>
+                                                                    <button type="submit" className="btn btn-primary-custom px-4" disabled={payingFee}>
+                                                                        {payingFee ? <><span className="spinner-border spinner-border-sm me-2"></span>Processing...</> : 'Confirm'}
+                                                                    </button>
                                                                 )}
                                                             </div>
                                                         </form>
@@ -1403,8 +1568,8 @@ const getWaLink = (phone: string) => {
                                                 <select className="form-select form-select-sm" value={attMonth}
                                                     onChange={e => setAttMonth(e.target.value)}
                                                     style={{ minWidth: 130 }}>
-                                                    {['1','2','3','4','5','6','7','8','9','10','11','12'].map((m, i) => (
-                                                        <option key={m} value={m}>{['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][i]}</option>
+                                                    {['1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12'].map((m, i) => (
+                                                        <option key={m} value={m}>{['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][i]}</option>
                                                     ))}
                                                 </select>
                                             </div>
@@ -1413,20 +1578,21 @@ const getWaLink = (phone: string) => {
                                                 <select className="form-select form-select-sm" value={attYear}
                                                     onChange={e => setAttYear(e.target.value)}
                                                     style={{ minWidth: 90 }}>
-                                                    {[String(now.getFullYear()-1), String(now.getFullYear()), String(now.getFullYear()+1)].map(y => (
+                                                    {[String(now.getFullYear() - 1), String(now.getFullYear()), String(now.getFullYear() + 1)].map(y => (
                                                         <option key={y} value={y}>{y}</option>
                                                     ))}
                                                 </select>
                                             </div>
-                                            <button className="btn btn-sm" onClick={() => fetchAttendance()}
-                                                style={{ background: 'var(--primary-teal)', color: '#fff', borderRadius: 6 }}>
-                                                {attLoading ? <span className="spinner-border spinner-border-sm me-1" /> : <i className="bi bi-search me-1" />}
-                                                Load
-                                            </button>
+                                            {attLoading && (
+                                                <div className="d-flex align-items-center text-teal small ms-2 pb-1">
+                                                    <span className="spinner-border spinner-border-sm me-1" role="status" />
+                                                    <span>Updating...</span>
+                                                </div>
+                                            )}
                                         </div>
                                         {/* Stats */}
                                         <div className="row g-2 mb-4">
-                                            {[{l:'Present',v:attStats.present,c:'#198754'},{l:'Absent',v:attStats.absent,c:'#dc3545'},{l:'Late',v:attStats.late,c:'#fd7e14'},{l:'Leave',v:attStats.leave,c:'#0d6efd'},{l:'Total',v:attStats.total,c:'#6c757d'}].map(s => (
+                                            {[{ l: 'Present', v: attStats.present, c: '#198754' }, { l: 'Absent', v: attStats.absent, c: '#dc3545' }, { l: 'Late', v: attStats.late, c: '#fd7e14' }, { l: 'Leave', v: attStats.leave, c: '#0d6efd' }, { l: 'Total', v: attStats.total, c: '#6c757d' }].map(s => (
                                                 <div className="col" key={s.l}>
                                                     <div className="card border-0 shadow-sm text-center py-2" style={{ borderTop: `3px solid ${s.c}` }}>
                                                         <div style={{ fontSize: '1.5rem', fontWeight: 700, color: s.c }}>{s.v ?? 0}</div>
@@ -1450,46 +1616,46 @@ const getWaLink = (phone: string) => {
                                         {attRecords.length > 0 ? (
                                             <div className="card border-0 shadow-sm rounded-4">
                                                 <div className="table-responsive">
-                                                <table className="table table-hover table-sm mb-0">
-                                                    <thead style={{ background: 'var(--primary-dark)', color: '#fff' }}>
-                                                        <tr>
-                                                            <th className="ps-4 py-2">#</th>
-                                                            <th className="py-2">Date</th>
-                                                            <th className="py-2">Day</th>
-                                                            <th className="py-2">Status</th>
-                                                            <th className="py-2">Class</th>
-                                                            <th className="py-2">Remarks</th>
-                                                        </tr>
-                                                    </thead>
-                                                    <tbody>
-                                                        {attRecords.map((r: any, i: number) => {
-                                                            const d = new Date(r.attendance_date);
-                                                            const statusColor: Record<string,string> = {Present:'#198754',Absent:'#dc3545',Late:'#fd7e14',Leave:'#0d6efd'};
-                                                            return (
-                                                                <tr key={r.attendance_id}>
-                                                                    <td className="ps-4 text-muted small">{i + 1}</td>
-                                                                    <td className="fw-medium">{d.toLocaleDateString('en-PK', { day:'2-digit', month:'short', year:'numeric' })}</td>
-                                                                    <td className="text-muted small">{d.toLocaleDateString('en-PK', { weekday:'long' })}</td>
-                                                                    <td>
-                                                                        <span className="badge rounded-pill px-3"
-                                                                            style={{ background: (statusColor[r.status] || '#6c757d') + '20', color: statusColor[r.status] || '#6c757d', border: `1px solid ${statusColor[r.status] || '#6c757d'}`, fontWeight: 700 }}>
-                                                                            {r.status}
-                                                                        </span>
-                                                                    </td>
-                                                                    <td className="text-muted small">{r.class_name || '—'}</td>
-                                                                    <td className="text-muted small">{r.remarks || '—'}</td>
-                                                                </tr>
-                                                            );
-                                                        })}
-                                                    </tbody>
-                                                </table>
+                                                    <table className="table table-hover table-sm mb-0">
+                                                        <thead style={{ background: 'var(--primary-dark)', color: '#fff' }}>
+                                                            <tr>
+                                                                <th className="ps-4 py-2">#</th>
+                                                                <th className="py-2">Date</th>
+                                                                <th className="py-2">Day</th>
+                                                                <th className="py-2">Status</th>
+                                                                <th className="py-2">Class</th>
+                                                                <th className="py-2">Remarks</th>
+                                                            </tr>
+                                                        </thead>
+                                                        <tbody>
+                                                            {attRecords.map((r: any, i: number) => {
+                                                                const d = new Date(r.attendance_date);
+                                                                const statusColor: Record<string, string> = { Present: '#198754', Absent: '#dc3545', Late: '#fd7e14', Leave: '#0d6efd' };
+                                                                return (
+                                                                    <tr key={r.attendance_id}>
+                                                                        <td className="ps-4 text-muted small">{i + 1}</td>
+                                                                        <td className="fw-medium">{d.toLocaleDateString('en-PK', { day: '2-digit', month: 'short', year: 'numeric' })}</td>
+                                                                        <td className="text-muted small">{d.toLocaleDateString('en-PK', { weekday: 'long' })}</td>
+                                                                        <td>
+                                                                            <span className="badge rounded-pill px-3"
+                                                                                style={{ background: (statusColor[r.status] || '#6c757d') + '20', color: statusColor[r.status] || '#6c757d', border: `1px solid ${statusColor[r.status] || '#6c757d'}`, fontWeight: 700 }}>
+                                                                                {r.status}
+                                                                            </span>
+                                                                        </td>
+                                                                        <td className="text-muted small">{r.class_name || '—'}</td>
+                                                                        <td className="text-muted small">{r.remarks || '—'}</td>
+                                                                    </tr>
+                                                                );
+                                                            })}
+                                                        </tbody>
+                                                    </table>
                                                 </div>
                                             </div>
                                         ) : !attLoading ? (
                                             <div className="text-center py-5 text-muted">
                                                 <i className="bi bi-calendar-x fs-1 opacity-50"></i>
                                                 <p className="mt-3 mb-0">No attendance data found</p>
-                                                <small>Select month &amp; year and click Load</small>
+                                                <small>No attendance recorded for the selected month</small>
                                             </div>
                                         ) : null}
                                     </div>
@@ -1503,7 +1669,7 @@ const getWaLink = (phone: string) => {
                                                     <div className="card h-100 border-0 shadow-sm hover-shadow transition">
                                                         <div className="card-body text-center p-4">
                                                             <i className="bi bi-file-earmark-pdf fs-1 text-danger mb-3"></i>
-                                                            <h6 className="text-truncate">Document {i+1}</h6>
+                                                            <h6 className="text-truncate">Document {i + 1}</h6>
                                                             <a href={`${process.env.NEXT_PUBLIC_API_URL || "https://shmool.onrender.com"}/${doc}`} target="_blank" className="btn btn-sm btn-outline-primary mt-2">View</a>
                                                         </div>
                                                     </div>

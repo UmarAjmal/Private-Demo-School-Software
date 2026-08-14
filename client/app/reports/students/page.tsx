@@ -24,8 +24,8 @@ export default function StudentReportPage() {
     const printRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
-        fetch(`${process.env.NEXT_PUBLIC_API_URL || "https://shmool.onrender.com"}` + '/academic/classes').then(r => r.json()).then(setClasses).catch(console.error);
-        fetch(`${process.env.NEXT_PUBLIC_API_URL || "https://shmool.onrender.com"}` + '/academic/sections').then(r => r.json()).then(setSections).catch(console.error);
+        fetch(`${process.env.NEXT_PUBLIC_API_URL || "https://shmool.onrender.com"}/academic/classes`).then(r => r.json()).then(setClasses).catch(console.error);
+        fetch(`${process.env.NEXT_PUBLIC_API_URL || "https://shmool.onrender.com"}/academic/sections`).then(r => r.json()).then(setSections).catch(console.error);
     }, []);
 
     useEffect(() => {
@@ -136,7 +136,7 @@ export default function StudentReportPage() {
                             <h2 style={{ textAlign: 'center', padding: '16px 0 4px', color: '#233D4D' }}>Student Report</h2>
                             <div className="text-center text-muted small mb-3">
                                 {classId ? classes.find(c => String(c.class_id) === classId)?.class_name : 'All Classes'}
-                                {sectionId ? ` — ${filteredSections.find(s => String(s.section_id) === sectionId)?.section_name}` : ''}
+                                {sectionId ? ` ${filteredSections.find(s => String(s.section_id) === sectionId)?.section_name}` : ''}
                                 {' | '} Generated: {new Date().toLocaleDateString('en-PK')}
                             </div>
 
