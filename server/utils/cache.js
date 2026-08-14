@@ -4,10 +4,7 @@
  */
 
 class ServerMemoryCache {
-    private cache: Map<string, { value: any; expiry: number }>;
-    private defaultTTL: number;
-
-    constructor(defaultTTLSeconds: number = 300) {
+    constructor(defaultTTLSeconds = 300) {
         this.cache = new Map();
         this.defaultTTL = defaultTTLSeconds * 1000;
     }
@@ -15,7 +12,7 @@ class ServerMemoryCache {
     /**
      * Get item from cache if valid
      */
-    get<T = any>(key: string): T | null {
+    get(key) {
         const item = this.cache.get(key);
         if (!item) return null;
 
@@ -24,13 +21,13 @@ class ServerMemoryCache {
             return null;
         }
 
-        return item.value as T;
+        return item.value;
     }
 
     /**
      * Set item in cache with TTL
      */
-    set(key: string, value: any, ttlSeconds?: number): void {
+    set(key, value, ttlSeconds) {
         const ttl = (ttlSeconds ? ttlSeconds * 1000 : this.defaultTTL);
         this.cache.set(key, {
             value,
@@ -41,7 +38,7 @@ class ServerMemoryCache {
     /**
      * Invalidate specific key or wildcard pattern (e.g. 'student_*')
      */
-    del(keyOrPattern: string): void {
+    del(keyOrPattern) {
         if (keyOrPattern.includes('*')) {
             const regex = new RegExp('^' + keyOrPattern.replace(/\*/g, '.*') + '$');
             for (const key of this.cache.keys()) {
@@ -57,7 +54,7 @@ class ServerMemoryCache {
     /**
      * Flush entire cache
      */
-    flush(): void {
+    flush() {
         this.cache.clear();
     }
 }
