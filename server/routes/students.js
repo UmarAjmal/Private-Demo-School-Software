@@ -1815,12 +1815,6 @@ router.put('/:id', upload.fields([{ name: 'image', maxCount: 1 }, { name: 'docum
                 SET total_amount = 0, status = 'paid'
                 WHERE student_id = $1 AND paid_amount = 0
             `, [id]);
-        } else {
-            await client.query(`
-                UPDATE admission_fee_ledger
-                SET total_amount = 0, status = 'paid'
-                WHERE student_id = $1 AND paid_amount = 0
-            `, [id]);
         }
 
         await client.query('COMMIT');
