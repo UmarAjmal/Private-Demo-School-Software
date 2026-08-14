@@ -19,7 +19,8 @@ An end-to-end, multi-tenant enterprise School Management System (SMS) engineered
 | 🌐 **Live Web Application (Vercel)** | [https://demoprivatesmartschool.vercel.app](https://demoprivatesmartschool.vercel.app) | Production Deployment ✅ |
 | ⚡ **Live Backend API (Render)** | [https://shmool.onrender.com](https://shmool.onrender.com) | Health Check: `/api/system/health` ✅ |
 | 📱 **Android App (APK Build)** | Built via Capacitor in `client/android [D_P_School]` | Standalone Package ID: `com.demosmartschool.app` |
-| 🔑 **Default Admin Login** | Username: `root` \| Password: `root123` | Full System Access |
+| 🔑 **Live Demo Admin Login** | **Username**: `admin` \| **Password**: `admin123` | Full Administrator Access |
+| 🛡️ **Backup SuperAdmin Login** | **Username**: `root` \| **Password**: `root123` | Root System Access |
 
 ---
 
