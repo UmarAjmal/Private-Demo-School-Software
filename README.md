@@ -1,5 +1,25 @@
 # 🎓 Smart School Management System
 
+[![License](https://img.shields.io/badge/License-Proprietary-red.svg?style=for-the-badge)](LICENSE)
+
+## License
+
+Copyright © 2026 Umar Ajmal. All Rights Reserved.
+
+This source code is publicly available for viewing and educational
+reference purposes only.
+
+No permission is granted to copy, reproduce, modify, distribute,
+publish, sublicense, sell, or use this code or substantial portions
+of this code for commercial or production purposes without prior
+written permission from the copyright holder.
+
+For commercial use, redistribution, modification, or any other use
+beyond viewing and learning, please contact the copyright holder
+for written permission.
+
+---
+
 Complete school management solution with student records, staff management, and family tracking.
 
 ---
@@ -177,6 +197,16 @@ SMS_Pern/
 **Version:** 2.0  
 **Last Updated:** February 20, 2026  
 **Status:** ✅ Production Ready
+
+---
+
+## 📄 License & Ownership
+
+Developed and owned by **Muhammad Umar Ajmal**.  
+Repository: [https://github.com/UmarAjmal/Private-Demo-School-Software.git](https://github.com/UmarAjmal/Private-Demo-School-Software.git)
+
+**Copyright © 2026 Umar Ajmal. All Rights Reserved.**  
+This source code is proprietary and confidential. Strictly for viewing and educational evaluation. For commercial licensing, institutional deployment, or customization inquiries, please contact the author. Refer to the [LICENSE](LICENSE) file for full legal terms.
 
 ---
 
