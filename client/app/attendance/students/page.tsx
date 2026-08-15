@@ -39,21 +39,35 @@ export default function StudentAttendancePage() {
   const [isLocked, setIsLocked] = useState(false);
   const { hasPermission, user } = useAuth();
 
-  const isAdmin = user?.role_name === 'Administrator';
+  const isAdmin = (user?.role_level || 0) >= 90;
   const canEditLocked = isAdmin || hasPermission('attendance.edit_locked', 'write');
   const canMarkAdvance = isAdmin || hasPermission('attendance.mark_advance', 'write');
 
   useEffect(() => {
-    fetch(`${process.env.NEXT_PUBLIC_API_URL || "https://shmool.onrender.com"}` + '/academic').then(r => r.json()).then(d => Array.isArray(d) ? setClasses(d) : null).catch(() => { });
-    fetch(`${process.env.NEXT_PUBLIC_API_URL || "https://shmool.onrender.com"}` + '/academic/sections').then(r => r.json()).then(d => Array.isArray(d) ? setSections(d) : null).catch(() => { });
-  }, []);
+    const loadMeta = async () => {
+      const API = process.env.NEXT_PUBLIC_API_URL || "https://shmool.onrender.com";
+      if (!user?.id) return;
+
+      try {
+
+        const res = await fetch(`${API}/exams/context/class-teacher?user_id=${user.id}`);
+        const data = await res.json();
+
+        if (Array.isArray(data.classes)) setClasses(data.classes);
+        if (Array.isArray(data.sections)) setSections(data.sections);
+      } catch {
+        // keep existing empty state if loading fails
+      }
+    };
+
+    loadMeta();
+  }, [user?.id]);
 
   const loadAttendance = useCallback(async () => {
-    if (!classId || !date) return;
+    if (!classId || !sectionId || !date) return;
     setLoading(true);
     try {
-      const secParam = sectionId ? `&section_id=${sectionId}` : '';
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "https://shmool.onrender.com"}/attendance/students/daily?class_id=${classId}&date=${date}${secParam}`);
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "https://shmool.onrender.com"}/attendance/students/daily?class_id=${classId}&section_id=${sectionId}&date=${date}&user_id=${user?.id}`);
       const data = await res.json();
       if (!Array.isArray(data)) { notify.error('Failed to load students'); setLoading(false); return; }
       setStudents(data);
@@ -80,7 +94,7 @@ export default function StudentAttendancePage() {
   };
 
   const saveAttendance = async () => {
-    if (isLocked || !classId || !date || !students.length) return;
+    if (isLocked || !classId || !sectionId || !date || !students.length) return;
     setSaving(true);
     try {
       const records = students.map(s => ({
@@ -88,9 +102,9 @@ export default function StudentAttendancePage() {
         status: statuses[s.student_id] || 'Present',
         remarks: remarks[s.student_id] || ''
       }));
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "https://shmool.onrender.com"}` + '/attendance/students/daily', {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "https://shmool.onrender.com"}/attendance/students/daily`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ class_id: classId, date, records })
+        body: JSON.stringify({ class_id: classId, section_id: sectionId, date, records, user_id: user?.id })
       });
       const d = await res.json();
       if (res.ok) notify.success(`Attendance saved for ${students.length} students!`);
@@ -111,6 +125,20 @@ export default function StudentAttendancePage() {
   const fmtDate = (d: string) => new Date(d + 'T00:00:00').toLocaleDateString('en-PK', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
 
   const classSections = sections.filter(s => String(s.class_id) === String(classId));
+
+  // Auto-select section if only one exists for the class; reset when class changes
+  useEffect(() => {
+    if (!classId) {
+      setSectionId('');
+      return;
+    }
+
+    if (classSections.length === 1 && !sectionId) {
+      setSectionId(String(classSections[0].section_id));
+    } else if (classSections.length > 1) {
+      setSectionId('');
+    }
+  }, [classId, classSections.length]);
 
   return (
     <div className="container-fluid px-3 px-md-4 py-3 animate__animated animate__fadeIn">
@@ -158,8 +186,8 @@ export default function StudentAttendancePage() {
                 </label>
                 <select className="form-select rounded-3" value={sectionId} onChange={e => setSectionId(e.target.value)} disabled={!classId}
                   style={{ border: '1.5px solid #dee2e6', height: 42 }}>
-                  <option value="">— All Sections —</option>
-                  {classSections.map(s => <option key={s.section_id} value={s.section_id}>{s.section_name}</option>)}
+                  <option value="">— Select Section —</option>
+                  {classSections.map(s => <option key={s.section_id} value={String(s.section_id)}>{s.section_name}</option>)}
                 </select>
               </div>
               <div className="col-md-3">
@@ -171,7 +199,7 @@ export default function StudentAttendancePage() {
               </div>
               <div className="col-md-3">
                 <button className="btn btn-primary-custom w-100 fw-bold rounded-3" style={{ height: 42 }}
-                  onClick={loadAttendance} disabled={!classId || loading}>
+                  onClick={loadAttendance} disabled={!classId || !sectionId || loading}>
                   {loading
                     ? <><span className="spinner-border spinner-border-sm me-2" />Loading...</>
                     : <><i className="bi bi-arrow-repeat me-2" />Load Attendance</>}
@@ -241,7 +269,7 @@ export default function StudentAttendancePage() {
               <div className="card-header bg-white border-0 d-flex justify-content-between align-items-center flex-wrap gap-2 px-3 px-md-4 py-3">
                 <span className="fw-bold" style={{ color: 'var(--primary-dark)' }}>
                   <i className="bi bi-people-fill me-2" style={{ color: 'var(--accent-orange)' }} />
-                  {total} Students — {cls?.class_name} {sec ? `(${sec.section_name})` : ''}
+                  {total} Students {cls?.class_name} {sec ? `(${sec.section_name})` : ''}
                 </span>
                 <span className="badge" style={{ background: 'rgba(33,94,97,0.1)', color: 'var(--primary-teal)', fontWeight: 600, fontSize: '0.78rem', padding: '5px 12px', borderRadius: 8 }}>
                   <i className="bi bi-calendar3 me-1" />{date ? fmtDate(date) : ''}

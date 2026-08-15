@@ -32,7 +32,9 @@ interface Slip {
 interface Stats { total_students: number; total_amount: number; paid_amount: number; paid_count: number; unpaid_count: number; partial_count: number; }
 
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
-const API = `${process.env.NEXT_PUBLIC_API_URL || "https://shmool.onrender.com"}`;
+const API = process.env.NEXT_PUBLIC_API_URL || "https://shmool.onrender.com";
+
+
 
 export default function FeeGeneratePage() {
     const router = useRouter();
@@ -72,18 +74,18 @@ export default function FeeGeneratePage() {
     useEffect(() => { fetchClasses(); fetchHeads(); }, []);
 
     const fetchClasses = async () => {
-        try { const r = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "https://shmool.onrender.com"}` + '/academic'); setClasses(await r.json()); } catch { }
+        try { const r = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "https://shmool.onrender.com"}/academic`); setClasses(await r.json()); } catch { }
     };
 
     const fetchHeads = async () => {
-        try { const r = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "https://shmool.onrender.com"}` + '/fee-heads/active'); setAllHeads(await r.json()); } catch { }
+        try { const r = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "https://shmool.onrender.com"}/fee-heads/active`); setAllHeads(await r.json()); } catch { }
     };
 
     const fetchPlanForClass = async (class_id: string) => {
         if (!class_id) { setMatchingPlans([]); setPlanInfo(null); setSelectedPlanId(''); return; }
         setLoadingPlan(true);
         try {
-            const r = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "https://shmool.onrender.com"}` + '/fee-plans');
+            const r = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "https://shmool.onrender.com"}/fee-plans`);
             const plans: any[] = await r.json();
             const activePlans = plans.filter(p => p.is_active && (p.applies_to_all || (p.classes && p.classes.some((c: any) => c.class_id.toString() === class_id))));
             setMatchingPlans(activePlans);
@@ -103,7 +105,7 @@ export default function FeeGeneratePage() {
         setPlanInfo(plan || null);
     }, [selectedPlanId, matchingPlans]);
 
-    // viewMonth: first selected month — always defined so we can show combined slips after generation
+    // viewMonth: first selected month always defined so we can show combined slips after generation
     const sortedSelectedMonths = [...selectedMonths].sort((a, b) => parseInt(a) - parseInt(b));
     const viewMonth = sortedSelectedMonths[0] ?? null;
 
@@ -189,8 +191,8 @@ export default function FeeGeneratePage() {
         setGenerating(true);
         const sortedMonths = [...selectedMonths].sort((a, b) => parseInt(a) - parseInt(b));
         try {
-            // Send ONE request with all selected months — server creates a single combined slip
-            const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "https://shmool.onrender.com"}` + '/fee-slips/generate', {
+            // Send ONE request with all selected months server creates a single combined slip
+            const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "https://shmool.onrender.com"}/fee-slips/generate`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -209,7 +211,7 @@ export default function FeeGeneratePage() {
             } else {
                 const monthLabels = sortedMonths.map(m => MONTHS[parseInt(m) - 1]).join(' + ');
                 const slipNote = sortedMonths.length > 1 ? ` (combined ${sortedMonths.length}-month slip per student)` : '';
-                notify.success(`Generated slips for ${monthLabels}${slipNote} — ${data.generated} created, ${data.skipped} skipped.`);
+                notify.success(`Generated slips for ${monthLabels}${slipNote} ${data.generated} created, ${data.skipped} skipped.`);
             }
             fetchSlips();
             fetchGeneratedMonths();
@@ -321,7 +323,7 @@ export default function FeeGeneratePage() {
                     <h2 className="fw-bold mb-1" style={{ color: 'var(--primary-dark)' }}>
                         <i className="bi bi-lightning-charge me-2"></i>Monthly Fee Generation
                     </h2>
-                    <p className="text-muted small mb-0">Select a class and month — regular heads auto-load from fee plan. Add extra charges if needed.</p>
+                    <p className="text-muted small mb-0">Select a class and month regular heads auto-load from fee plan. Add extra charges if needed.</p>
                 </div>
                 <div className="d-grid d-md-block">
                     <button className="btn btn-secondary-custom d-inline-flex align-items-center justify-content-center gap-2" onClick={() => router.push('/fees/print')}>
@@ -395,6 +397,7 @@ export default function FeeGeneratePage() {
                             <div className="mb-3">
                                 <label className="form-label fw-bold small text-muted">Year <span className="text-danger">*</span></label>
                                 <input type="number" className="form-control" value={selectedYear}
+                                    onKeyDown={e => ['e', 'E', '+', '-', '.'].includes(e.key) && e.preventDefault()}
                                     onChange={e => setSelectedYear(e.target.value)} />
                             </div>
                             <div className="row g-2 mb-3">
@@ -507,6 +510,7 @@ export default function FeeGeneratePage() {
                                                     <div className="input-group input-group-sm">
                                                         <span className="input-group-text bg-light">PKR</span>
                                                         <input type="number" className="form-control" value={head.amount}
+                                                            onKeyDown={e => ['e', 'E', '+', '-'].includes(e.key) && e.preventDefault()}
                                                             onChange={e => updateExtra(i, 'amount', e.target.value)} placeholder="0" />
                                                     </div>
                                                 </div>
@@ -576,8 +580,8 @@ export default function FeeGeneratePage() {
                             <h6 className="mb-0 fw-bold" style={{ color: 'var(--primary-dark)' }}>
                                 {className
                                     ? sortedSelectedMonths.length === 1
-                                        ? `${className} — ${MONTHS[parseInt(sortedSelectedMonths[0]) - 1]} ${selectedYear}`
-                                        : `${className} — ${MONTHS[parseInt(sortedSelectedMonths[0]) - 1]} + ${MONTHS[parseInt(sortedSelectedMonths[sortedSelectedMonths.length - 1]) - 1]} ${selectedYear} (combined)`
+                                        ? `${className} ${MONTHS[parseInt(sortedSelectedMonths[0]) - 1]} ${selectedYear}`
+                                        : `${className} ${MONTHS[parseInt(sortedSelectedMonths[0]) - 1]} + ${MONTHS[parseInt(sortedSelectedMonths[sortedSelectedMonths.length - 1]) - 1]} ${selectedYear} (combined)`
                                     : 'Select a class to view slips'}
                             </h6>
                             {slips.length > 0 && (
@@ -696,7 +700,7 @@ export default function FeeGeneratePage() {
                             <div className="modal-content border-0 shadow-lg">
                                 <div className="modal-header text-white" style={{ backgroundColor: 'var(--primary-dark)' }}>
                                     <h5 className="modal-title">
-                                        <i className="bi bi-pencil-square me-2"></i>Edit Slip — {editSlip.first_name} {editSlip.last_name}
+                                        <i className="bi bi-pencil-square me-2"></i>Edit Slip {editSlip.first_name} {editSlip.last_name}
                                     </h5>
                                     <button className="btn-close btn-close-white" onClick={() => setShowEdit(false)}></button>
                                 </div>
@@ -714,6 +718,7 @@ export default function FeeGeneratePage() {
                                                 <div className="input-group input-group-sm">
                                                     <span className="input-group-text bg-light">PKR</span>
                                                     <input type="number" className="form-control" value={item.amount}
+                                                        onKeyDown={e => ['e', 'E', '+', '-'].includes(e.key) && e.preventDefault()}
                                                         onChange={e => setEditItems(p => p.map((x, j) => j === i ? { ...x, amount: e.target.value } : x))}
                                                         min="0" />
                                                 </div>

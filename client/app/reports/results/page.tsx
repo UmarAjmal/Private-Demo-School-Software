@@ -27,9 +27,9 @@ export default function ResultsReportPage() {
     const printRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
-        fetch(`${process.env.NEXT_PUBLIC_API_URL || "https://shmool.onrender.com"}` + '/academic/classes').then(r => r.json()).then(setClasses).catch(console.error);
-        fetch(`${process.env.NEXT_PUBLIC_API_URL || "https://shmool.onrender.com"}` + '/academic/sections').then(r => r.json()).then(setSections).catch(console.error);
-        fetch(`${process.env.NEXT_PUBLIC_API_URL || "https://shmool.onrender.com"}` + '/academic/years').then(r => r.json()).then(data => {
+        fetch(`${process.env.NEXT_PUBLIC_API_URL || "https://shmool.onrender.com"}/academic/classes`).then(r => r.json()).then(setClasses).catch(console.error);
+        fetch(`${process.env.NEXT_PUBLIC_API_URL || "https://shmool.onrender.com"}/academic/sections`).then(r => r.json()).then(setSections).catch(console.error);
+        fetch(`${process.env.NEXT_PUBLIC_API_URL || "https://shmool.onrender.com"}/academic/years`).then(r => r.json()).then(data => {
             setYears(data);
             const active = data.find((y: AcademicYear) => y.status === 'active');
             if (active) setYearId(String(active.id));
@@ -171,7 +171,7 @@ export default function ResultsReportPage() {
                             <h2 style={{ textAlign: 'center', padding: '16px 0 4px', color: '#233D4D' }}>Results Report</h2>
                             <div className="text-center text-muted small mb-3">
                                 {years.find(y => String(y.id) === yearId)?.year_name}
-                                {termId ? ` — ${filteredTerms.find(t => String(t.id) === termId)?.term_name}` : ' — All Terms'}
+                                {termId ? ` ${filteredTerms.find(t => String(t.id) === termId)?.term_name}` : ' All Terms'}
                                 {' | '} Generated: {new Date().toLocaleDateString('en-PK')}
                             </div>
 

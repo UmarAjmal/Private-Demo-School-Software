@@ -6,7 +6,7 @@ async function getUserContext(client, userId) {
     if (!userId) return null;
     
     const userRes = await client.query(
-        `SELECT u.id, u.is_active, r.role_name
+        `SELECT u.id, u.is_active, r.role_name, r.role_level
          FROM app_users u
          LEFT JOIN app_roles r ON r.id = u.role_id
          WHERE u.id = $1`,
@@ -22,10 +22,12 @@ async function getUserContext(client, userId) {
         [userId]
     );
 
+    const roleLevel = user.role_level || 0;
     return {
         user,
-        isAdmin: user.role_name === 'Administrator',
-        isTeacher: user.role_name === 'Teacher', // Or check permissions broadly
+        isAdmin: roleLevel >= 90,
+        isSupervisor: roleLevel >= 65,
+        isTeacher: roleLevel >= 50,
         employeeId: empRes.rows[0]?.employee_id || null
     };
 }
@@ -43,13 +45,12 @@ router.get('/classes', async (req, res) => {
 
         // If not admin, check if employee and filter assignments
         if (!ctx.isAdmin && ctx.employeeId) {
-            // Join with teacher_class_assignment to find assigned classes
-            // Assuming teacher_class_assignment maps employee_id to class_id
+            // Join with teacher_class_assignment to find assigned classes WHERE is_class_teacher = true
             query = `
                 SELECT DISTINCT c.* 
                 FROM classes c
                 JOIN teacher_class_assignment tca ON tca.class_id = c.class_id
-                WHERE tca.employee_id = $1
+                WHERE tca.employee_id = $1 AND tca.is_class_teacher = true
                 ORDER BY c.class_name ASC
             `;
             params = [ctx.employeeId];
@@ -64,11 +65,11 @@ router.get('/classes', async (req, res) => {
              // "teaches ka pass nahi hon ga... jo teacher jis class jiss section ko assign howa ha asko wohi classes show hon"
              // Implies: Teachers -> Restricted. Everyone else (Admin/Accountant) -> All?
              // Let's check role name.
-             // If role is 'Teacher', restrict. Else show all.
-            if (ctx.user.role_name === 'Teacher') {
+             // If role is 'Teacher' (and not supervisor), restrict. Else show all.
+            if (ctx.isTeacher && !ctx.isSupervisor) {
                 return res.json([]); // No assignment found if logic reached here without employeeId
             }
-            // Fallback for Accountant/Admin -> Show All
+             // Fallback for Accountant/Admin/Supervisor -> Show All
         }
 
         const result = await pool.query(query, params);
@@ -79,7 +80,7 @@ router.get('/classes', async (req, res) => {
     }
 });
 
-// GET /sections - Filter based on class and user
+// GET /sections
 router.get('/sections', async (req, res) => {
     try {
         const { class_id, user_id } = req.query;
@@ -91,12 +92,12 @@ router.get('/sections', async (req, res) => {
         let query = `SELECT * FROM sections WHERE class_id = $1 ORDER BY section_name ASC`;
         let params = [class_id];
 
-        if (!ctx.isAdmin && ctx.employeeId && ctx.user.role_name === 'Teacher') {
+        if (!ctx.isAdmin && ctx.employeeId && ctx.isTeacher && !ctx.isSupervisor) {
              query = `
                 SELECT DISTINCT s.* 
                 FROM sections s
                 JOIN teacher_class_assignment tca ON tca.section_id = s.section_id
-                WHERE s.class_id = $1 AND tca.employee_id = $2
+                WHERE s.class_id = $1 AND tca.employee_id = $2 AND tca.is_class_teacher = true
                 ORDER BY s.section_name ASC
             `;
             params = [class_id, ctx.employeeId];

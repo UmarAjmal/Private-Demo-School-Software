@@ -40,7 +40,7 @@ export default function GenericDashboard({ userName, role }: { userName:string; 
 
   const s = data.stats;
   return (
-    <DashShell title={'Welcome, ' + userName} greeting={role} subtitle={today}>
+    <DashShell title="School Dashboard" subtitle={today}>
 
       {/* Stats */}
       <div className="dash-stat-grid" style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill,minmax(200px,1fr))', gap:14, marginBottom:20 }}>
@@ -49,37 +49,6 @@ export default function GenericDashboard({ userName, role }: { userName:string; 
         <StatCard icon="bi-building"          label="Classes"         value={fmt(s.total_classes)}          sub="Total"         accent={C.purple} />
         <StatCard icon="bi-graph-up-arrow"    label="Month Collected" value={<MaskedAmount amount={s.this_month_collected} />} sub="This month"   accent={C.orange} />
       </div>
-
-      {/* Navigation Grid */}
-      <Panel title="Quick Navigation" icon="bi-grid-fill">
-        <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill,minmax(150px,1fr))', gap:12, padding:'4px 0' }}>
-          {NAV_LINKS.map(link => (
-            <Link key={link.href} href={link.href} style={{
-              display:'flex', flexDirection:'column' as const, alignItems:'center', justifyContent:'center',
-              gap:10, padding:'22px 12px', borderRadius:16, textDecoration:'none',
-              background:'#fff', border:'1.5px solid ' + link.color + '22',
-              boxShadow:'0 2px 10px ' + link.color + '18',
-              transition:'all 0.22s',
-            }}
-              onMouseEnter={e=>{
-                const el=e.currentTarget as HTMLElement;
-                el.style.background=link.color; el.style.transform='translateY(-3px)';
-                el.style.boxShadow='0 8px 24px ' + link.color + '40';
-                el.querySelectorAll<HTMLElement>('i,span').forEach(c=>{c.style.color='#fff';});
-              }}
-              onMouseLeave={e=>{
-                const el=e.currentTarget as HTMLElement;
-                el.style.background='#fff'; el.style.transform='none';
-                el.style.boxShadow='0 2px 10px ' + link.color + '18';
-                el.querySelectorAll<HTMLElement>('i,span').forEach(c=>{c.style.color='';});
-              }}
-            >
-              <i className={'bi ' + link.icon} style={{ fontSize:28, color:link.color, transition:'color 0.22s' }} />
-              <span style={{ fontSize:12, fontWeight:700, color:'#374151', textAlign:'center' as const, lineHeight:1.4, transition:'color 0.22s' }}>{link.label}</span>
-            </Link>
-          ))}
-        </div>
-      </Panel>
     </DashShell>
   );
 }

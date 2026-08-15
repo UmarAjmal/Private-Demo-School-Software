@@ -91,7 +91,7 @@ export default function StudentPromotion() {
 
     const fetchPromotionReadyYears = async () => {
         try {
-            const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "https://shmool.onrender.com"}` + '/academic/years/promotion-ready');
+            const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "https://shmool.onrender.com"}/academic/years/promotion-ready`);
             if (res.ok) {
                 const data = await res.json();
                 setYears(data);
@@ -103,7 +103,7 @@ export default function StudentPromotion() {
 
     const fetchClasses = async () => {
         try {
-            const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "https://shmool.onrender.com"}` + '/academic/classes');
+            const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "https://shmool.onrender.com"}/academic/classes`);
             if (res.ok) {
                 const data = await res.json();
                 console.log('Fetched classes:', data);
@@ -118,7 +118,7 @@ export default function StudentPromotion() {
 
     const fetchSections = async () => {
         try {
-            const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "https://shmool.onrender.com"}` + '/academic/sections');
+            const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "https://shmool.onrender.com"}/academic/sections`);
             if (res.ok) {
                 const data = await res.json();
                 console.log('Fetched sections:', data);
@@ -249,7 +249,7 @@ export default function StudentPromotion() {
         try {
             const studentsToPromote = Array.from(selectedStudents).map(id => promotionMap.get(id)!);
 
-            const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "https://shmool.onrender.com"}` + '/promotion/execute', {
+            const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "https://shmool.onrender.com"}/promotion/execute`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({

@@ -2,7 +2,9 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 
-const API = `${process.env.NEXT_PUBLIC_API_URL || "https://shmool.onrender.com"}`;
+const API = process.env.NEXT_PUBLIC_API_URL || "https://shmool.onrender.com";
+
+
 
 interface FamilyOPB {
     family_id: string;
@@ -155,7 +157,7 @@ export default function OpeningBalancePage() {
                     <h2 className="fw-bold mb-1" style={{ color: 'var(--primary-dark)' }}>
                         <i className="bi bi-clock-history me-2" style={{ color: 'var(--accent-orange)' }} /> Opening Balance
                     </h2>
-                    <p className="text-muted mb-0 small">Set/view family previous dues — payments are collected via Fee Slips</p>
+                    <p className="text-muted mb-0 small">Set/view family previous dues payments are collected via Fee Slips</p>
                 </div>
                 {hasPermission('fees', 'write') && (
                     <button className="btn btn-sm fw-semibold rounded-3 px-3"
@@ -173,10 +175,10 @@ export default function OpeningBalancePage() {
                     <strong style={{ color: 'var(--primary-dark)' }}>How Opening Balance works:</strong>
                     <ol className="mb-0 mt-1 ps-3" style={{ fontSize: '0.85rem', color: '#495057' }}>
                         <li>Set OPB for each family using the <strong>Set Family OPB</strong> button or <i className="bi bi-pencil-fill" /> icon below.</li>
-                        <li>Go to <strong>Fee Heads</strong> — the <em>Opening Balance</em> head is already created.</li>
-                        <li>Open each <strong>Fee Plan</strong> and add the <em>Opening Balance</em> head (amount can be 0 — system uses actual remaining OPB).</li>
-                        <li><strong>Generate Slips</strong> — OPB is auto-added as a line item for families with remaining balance.</li>
-                        <li><strong>Collect Fee</strong> normally — OPB reduces automatically as slips are paid.</li>
+                        <li>Go to <strong>Fee Heads</strong> the <em>Opening Balance</em> head is already created.</li>
+                        <li>Open each <strong>Fee Plan</strong> and add the <em>Opening Balance</em> head (amount can be 0 system uses actual remaining OPB).</li>
+                        <li><strong>Generate Slips</strong> OPB is auto-added as a line item for families with remaining balance.</li>
+                        <li><strong>Collect Fee</strong> normally OPB reduces automatically as slips are paid.</li>
                     </ol>
                 </div>
             </div>
@@ -401,6 +403,7 @@ export default function OpeningBalancePage() {
                                         <span className="input-group-text bg-white"><i className="bi bi-wallet2" style={{ color: 'var(--accent-orange)' }} /></span>
                                         <span className="input-group-text bg-white fw-semibold">Rs.</span>
                                         <input type="number" className="form-control rounded-end-3" min="0" step="1" placeholder="0"
+                                            onKeyDown={e => ['e', 'E', '+', '-'].includes(e.key) && e.preventDefault()}
                                             value={setForm.opening_balance} onChange={e => setSetForm({ ...setForm, opening_balance: e.target.value })}
                                             style={{ border: '1.5px solid #dee2e6', borderLeft: 'none' }} autoFocus />
                                     </div>

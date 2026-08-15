@@ -1,1 +1,0 @@
-const pool = require('./db'); async function run() { try { await pool.query('ALTER TABLE slip_line_items ADD COLUMN IF NOT EXISTS paid_amount DECIMAL(10,2) DEFAULT 0'); console.log('success'); } catch(e) { console.error(e); } finally { pool.end(); } } run();

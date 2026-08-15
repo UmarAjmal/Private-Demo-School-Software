@@ -1,0 +1,599 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <title>Falcon School System - Annual Result Card</title>
+  <style>
+    @page {
+      size: A4 portrait;
+      margin: 10mm;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: "Times New Roman", Times, serif;
+      color: #000;
+      margin: 0;
+      padding: 0;
+      background: #e5e5e5;
+    }
+
+    .page-wrap {
+      display: flex;
+      justify-content: center;
+    }
+
+    .page {
+      width: 210mm;
+      height: 277mm;
+      padding: 10mm 12mm;
+      margin: 8mm auto 20mm auto;
+      background: #fff;
+      box-shadow: 0 0 8px rgba(0, 0, 0, 0.25);
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* ---------- Header ---------- */
+    .header {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      border-bottom: 3px solid #000;
+      padding-bottom: 8px;
+      margin-bottom: 10px;
+    }
+
+    .logo {
+      width: 68px;
+      height: 68px;
+      border-radius: 50%;
+      border: 2px solid #000;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      font-size: 6px;
+      font-weight: bold;
+      line-height: 1.1;
+      flex-shrink: 0;
+      padding: 4px;
+    }
+
+    .school-info {
+      text-align: center;
+      flex: 1;
+    }
+
+    .school-name {
+      font-size: 35px;
+      font-weight: bold;
+      margin: 0 0 3px 0;
+      line-height: 1.1;
+    }
+
+    .school-address,
+    .school-contact {
+      font-size: 17px;
+      margin: 1px 0;
+      line-height: 1.15;
+    }
+
+    /* ---------- Title bar ---------- */
+    .title-bar {
+      display: flex;
+      border: 1.5px solid #000;
+      margin-bottom: 10px;
+    }
+
+    .title-bar .title {
+      flex: 2;
+      background: #d9d9d9;
+      text-align: center;
+      font-weight: bold;
+      font-size: 20px;
+      padding: 6px;
+      border-right: 1.5px solid #000;
+      letter-spacing: 1px;
+    }
+
+    .title-bar .session {
+      flex: 1;
+      text-align: center;
+      font-weight: bold;
+      font-size: 17px;
+      padding: 6px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    /* ---------- Info table ---------- */
+    table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+
+    .info-table td {
+      border: 1px solid #000;
+      padding: 4px 8px;
+      font-size: 13px;
+    }
+
+    .info-table td.label {
+      font-weight: bold;
+      width: 16%;
+      background: #f2f2f2;
+    }
+
+    .info-table td.value {
+      width: 34%;
+    }
+
+    .info-table {
+      margin-bottom: 10px;
+    }
+
+    /* ---------- Section heading ---------- */
+    .section-heading {
+      font-weight: bold;
+      font-size: 17px;
+      margin: 0 0 5px 0;
+    }
+
+    /* ---------- Marks table ---------- */
+    .marks-table {
+      margin-bottom: 10px;
+    }
+
+    .marks-table th,
+    .marks-table td {
+      border: 1px solid #000;
+      padding: 4px 8px;
+      font-size: 17px;
+      text-align: center;
+    }
+
+    .marks-table th {
+      background: #d9d9d9;
+      font-weight: bold;
+    }
+
+    .marks-table td.subject {
+      text-align: left;
+    }
+
+    .marks-table tr.total-row td {
+      font-weight: bold;
+      background: #f2f2f2;
+    }
+
+    /* compact mode when subject count is high */
+    .page.compact .marks-table th,
+    .page.compact .marks-table td {
+      padding: 2.5px 6px;
+      font-size: 14.5px;
+    }
+
+    .page.compact .info-table td {
+      padding: 3px 8px;
+    }
+
+    .page.compact .remarks-line {
+      height: 16px;
+      margin-bottom: 4px;
+    }
+
+    .page.compact .signatures {
+      margin-top: 30px;
+    }
+
+    .page.compact .issue-date {
+      margin-top: 14px;
+    }
+
+    .page.compact .header {
+      margin-bottom: 6px;
+      padding-bottom: 5px;
+    }
+
+    .page.compact .school-name {
+      font-size: 30px;
+    }
+
+    .page.compact .title-bar {
+      margin-bottom: 7px;
+    }
+
+    .page.compact .section-heading {
+      margin-bottom: 3px;
+    }
+
+    /* ---------- Summary table ---------- */
+    .summary-table {
+      margin-bottom: 10px;
+    }
+
+    .summary-table th,
+    .summary-table td {
+      border: 1px solid #000;
+      padding: 6px;
+      text-align: center;
+    }
+
+    .summary-table th {
+      background: #d9d9d9;
+      font-weight: bold;
+      font-size: 16px;
+    }
+
+    .summary-table td {
+      font-size: 17px;
+    }
+
+    /* ---------- Grading scale ---------- */
+    .grading-heading {
+      font-weight: bold;
+      font-style: italic;
+      font-size: 17px;
+      margin: 0 0 5px 0;
+    }
+
+    .grading-table {
+      margin-bottom: 10px;
+    }
+
+    .grading-table th,
+    .grading-table td {
+      border: 1px solid #000;
+      padding: 4px 8px;
+      font-size: 16px;
+      text-align: center;
+    }
+
+    .grading-table th {
+      background: #f2f2f2;
+      font-weight: bold;
+    }
+
+    /* ---------- Remarks ---------- */
+    .remarks-heading {
+      font-weight: bold;
+      font-style: italic;
+      font-size: 17px;
+      margin: 0 0 8px 0;
+    }
+
+    .remarks-line {
+      border-bottom: 1px solid #000;
+      height: 20px;
+      margin-bottom: 5px;
+    }
+
+    /* ---------- Signatures ---------- */
+    .signatures {
+      display: flex;
+      justify-content: space-between;
+      margin-top: 40px;
+      text-align: center;
+    }
+
+    .signatures .sig {
+      flex: 1;
+    }
+
+    .sig-line {
+      border-bottom: 1px solid #000;
+      width: 80%;
+      margin: 0 auto 6px auto;
+      height: 24px;
+    }
+
+    .sig-label {
+      font-size: 15px;
+      font-weight: bold;
+    }
+
+    .issue-date {
+      text-align: center;
+      font-style: italic;
+      font-size: 12px;
+      margin-top: 18px;
+    }
+
+    .bottom-spacer {
+      flex: 1;
+    }
+
+    /* editable inputs inside table cells */
+    .cell-input {
+      width: 100%;
+      border: none;
+      background: transparent;
+      font-family: inherit;
+      font-size: inherit;
+      text-align: center;
+      padding: 0;
+    }
+
+    .cell-input.subject-input {
+      text-align: left;
+    }
+
+    .cell-input:focus {
+      outline: 1px dashed #1a73e8;
+    }
+
+    @media print {
+      body {
+        background: #fff;
+      }
+
+      .page {
+        box-shadow: none;
+        margin: 0 auto;
+      }
+    }
+  </style>
+</head>
+
+<body>
+
+  <div class="page-wrap">
+    <div class="page" id="page">
+
+      <!-- Header -->
+      <div class="header">
+        <div class="logo">DEEDS NOT WORDS<br>Falcon School System</div>
+        <div class="school-info">
+          <div class="school-name">Falcon School System</div>
+          <div class="school-address">83m Madina Colony Vehari</div>
+          <div class="school-contact">0300-7730141 &nbsp;;&nbsp; 0308-7696430 &nbsp;;&nbsp; 067-3366383</div>
+        </div>
+      </div>
+
+      <!-- Title bar -->
+      <div class="title-bar">
+        <div class="title">ANNUAL RESULT CARD</div>
+        <div class="session">Session: [ <span id="fld-session">2025 - 2026</span> ]</div>
+      </div>
+
+      <!-- Student info -->
+      <table class="info-table">
+        <tr>
+          <td class="label">Student Name</td>
+          <td class="value" id="fld-studentName">[ Student Full Name ]</td>
+          <td class="label">Father Name</td>
+          <td class="value" id="fld-fatherName">[ Father Full Name ]</td>
+        </tr>
+        <tr>
+          <td class="label">Class</td>
+          <td class="value" id="fld-class">[ Class ]</td>
+          <td class="label">Section</td>
+          <td class="value" id="fld-section">[ Section ]</td>
+        </tr>
+        <tr>
+          <td class="label">Roll No.</td>
+          <td class="value" id="fld-rollNo">[ &nbsp; ]</td>
+          <td class="label">Admission No.</td>
+          <td class="value" id="fld-admissionNo">[ 0000 ]</td>
+        </tr>
+      </table>
+
+      <!-- Subject-wise Marks -->
+      <div class="section-heading">Subject-wise Marks</div>
+      <table class="marks-table" id="marksTable">
+        <thead>
+          <tr>
+            <th style="width:6%;">S.#</th>
+            <th style="width:34%;">Subject</th>
+            <th style="width:15%;">Total Marks</th>
+            <th style="width:15%;">Marks Obtained</th>
+            <th style="width:15%;">%</th>
+            <th style="width:15%;">Grade</th>
+          </tr>
+        </thead>
+        <tbody id="marksBody">
+          <!-- rows generated by JS -->
+        </tbody>
+      </table>
+
+      <!-- Summary -->
+      <table class="summary-table">
+        <tr>
+          <th>Percentage</th>
+          <th>Overall Grade</th>
+          <th>Class Position</th>
+          <th>Result Status</th>
+        </tr>
+        <tr>
+          <td id="fld-percentage">[ __ % ]</td>
+          <td id="fld-overallGrade">[ A / B / C ]</td>
+          <td id="fld-classPosition">[ __ ]</td>
+          <td id="fld-resultStatus">[ PASS / FAIL ]</td>
+        </tr>
+      </table>
+
+      <!-- Grading scale -->
+      <div class="grading-heading">Grading Scale</div>
+      <table class="grading-table">
+        <tr>
+          <th>Grade</th>
+          <th>A+</th>
+          <th>A</th>
+          <th>B</th>
+          <th>C</th>
+          <th>D</th>
+        </tr>
+        <tr>
+          <th>Marks %</th>
+          <td>90-100</td>
+          <td>80-89</td>
+          <td>70-79</td>
+          <td>60-69</td>
+          <td>Below 60</td>
+        </tr>
+      </table>
+
+      <!-- Remarks -->
+      <div class="remarks-heading">Class Teacher's Remarks:</div>
+      <div class="remarks-line" id="fld-remarks1"></div>
+      <div class="remarks-line" id="fld-remarks2"></div>
+
+      <div class="bottom-spacer"></div>
+
+      <!-- Signatures -->
+      <div class="signatures">
+        <div class="sig">
+          <div class="sig-line"></div>
+          <div class="sig-label">Class Teacher's Signature</div>
+        </div>
+        <div class="sig">
+          <div class="sig-line"></div>
+          <div class="sig-label">Exam Controller's Signature</div>
+        </div>
+        <div class="sig">
+          <div class="sig-line"></div>
+          <div class="sig-label">Principal's Signature</div>
+        </div>
+      </div>
+
+      <div class="issue-date">Date of Issue: [ <span id="fld-dateOfIssue">__ / __ / ____</span> ]</div>
+
+    </div>
+  </div>
+
+  <script>
+    // =========================================================
+    // SOFTWARE INTEGRATION POINT
+    // Call renderResultCard(data) from your software with ONE object
+    // that has the student's info + that class's own subject list.
+    // Sab kuch (student details + subjects + result summary) is
+    // ek hi function call se auto-fill ho jayega.
+    // =========================================================
+
+    const exampleData = {
+      session: "2025 - 2026",
+      studentName: "Ali Hassan",
+      fatherName: "Muhammad Hassan",
+      className: "6",
+      section: "A",
+      rollNo: "12",
+      admissionNo: "0451",
+
+      // Jitne subjects us class ke hon, utne objects yahan list mein daal dein
+      subjects: [
+        { name: "Urdu", total: 100, obtained: "", percentage: "", grade: "" },
+        { name: "English", total: 100, obtained: "", percentage: "", grade: "" },
+        { name: "Mathematics", total: 100, obtained: "", percentage: "", grade: "" },
+        { name: "Science", total: 100, obtained: "", percentage: "", grade: "" },
+        { name: "Islamiat", total: 100, obtained: "", percentage: "", grade: "" },
+        { name: "Social Studies", total: 100, obtained: "", percentage: "", grade: "" }
+      ],
+
+      percentage: "",       // e.g. "78.5 %"
+      overallGrade: "",     // e.g. "B"
+      classPosition: "",    // e.g. "3rd"
+      resultStatus: "",     // e.g. "PASS"
+      remarks1: "",
+      remarks2: "",
+      dateOfIssue: ""       // e.g. "15 / 07 / 2026"
+    };
+
+    function setField(id, value, fallback) {
+      const el = document.getElementById(id);
+      if (!el) return;
+      el.textContent = (value !== undefined && value !== null && value !== '') ? value : (fallback || '');
+    }
+
+    function renderResultCard(data) {
+      if (!data || typeof data !== 'object') data = exampleData;
+
+      // ---- Student info fields ----
+      setField('fld-session', data.session, '2025 - 2026');
+      setField('fld-studentName', data.studentName, '[ Student Full Name ]');
+      setField('fld-fatherName', data.fatherName, '[ Father Full Name ]');
+      setField('fld-class', data.className, '[ Class ]');
+      setField('fld-section', data.section, '[ Section ]');
+      setField('fld-rollNo', data.rollNo, '[   ]');
+      setField('fld-admissionNo', data.admissionNo, '[ 0000 ]');
+
+      // ---- Result summary fields ----
+      setField('fld-percentage', data.percentage, '[ __ % ]');
+      setField('fld-overallGrade', data.overallGrade, '[ A / B / C ]');
+      setField('fld-classPosition', data.classPosition, '[ __ ]');
+      setField('fld-resultStatus', data.resultStatus, '[ PASS / FAIL ]');
+
+      // ---- Remarks & date ----
+      setField('fld-remarks1', data.remarks1, '');
+      setField('fld-remarks2', data.remarks2, '');
+      setField('fld-dateOfIssue', data.dateOfIssue, '__ / __ / ____');
+
+      // ---- Subject-wise marks table ----
+      let subjects = Array.isArray(data.subjects) ? data.subjects : [];
+      if (subjects.length === 0) subjects = exampleData.subjects;
+      if (subjects.length > 15) subjects = subjects.slice(0, 15); // safety cap
+
+      const body = document.getElementById('marksBody');
+      body.innerHTML = '';
+      let totalMarksSum = 0;
+
+      subjects.forEach((subj, idx) => {
+        const i = idx + 1;
+        const name = subj.name || ('Subject ' + i);
+        const total = (subj.total !== undefined && subj.total !== '') ? subj.total : 100;
+        const obtained = (subj.obtained !== undefined && subj.obtained !== '') ? subj.obtained : '';
+        const percentage = (subj.percentage !== undefined && subj.percentage !== '') ? subj.percentage : '';
+        const grade = (subj.grade !== undefined && subj.grade !== '') ? subj.grade : '';
+        totalMarksSum += Number(total) || 0;
+
+        const row = document.createElement('tr');
+        row.innerHTML =
+          '<td>' + i + '</td>' +
+          '<td class="subject"><input class="cell-input subject-input" type="text" value="' + escapeHtml(name) + '"></td>' +
+          '<td><input class="cell-input" type="text" value="' + escapeHtml(String(total)) + '"></td>' +
+          '<td><input class="cell-input" type="text" value="' + escapeHtml(String(obtained)) + '" placeholder="[ ]"></td>' +
+          '<td><input class="cell-input" type="text" value="' + escapeHtml(String(percentage)) + '" placeholder="[ % ]"></td>' +
+          '<td><input class="cell-input" type="text" value="' + escapeHtml(String(grade)) + '" placeholder="[ ]"></td>';
+        body.appendChild(row);
+      });
+
+      const totalRow = document.createElement('tr');
+      totalRow.className = 'total-row';
+      totalRow.innerHTML =
+        '<td colspan="2">Total</td>' +
+        '<td>[ ' + totalMarksSum + ' ]</td>' +
+        '<td>[ ]</td>' +
+        '<td>[ % ]</td>' +
+        '<td>&nbsp;</td>';
+      body.appendChild(totalRow);
+
+      // auto-compact so the card always stays within one A4 page
+      const page = document.getElementById('page');
+      if (subjects.length > 9) {
+        page.classList.add('compact');
+      } else {
+        page.classList.remove('compact');
+      }
+    }
+
+    function escapeHtml(str) {
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+    }
+
+    // initial render (your software should call renderResultCard(dataObject) instead)
+    renderResultCard(exampleData);
+  </script>
+
+</body>
+
+</html>

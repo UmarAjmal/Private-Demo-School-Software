@@ -14,12 +14,38 @@ type Role = {
     id: number;
     role_name: string;
     description: string;
+    role_level?: number;
+    dashboard_access?: string;
     is_system_default: boolean;
+    is_custom?: boolean;
     permissions: Permission[];
+    assigned_count?: number;
 };
 
+/* Role Level Hierarchy */
+const ROLE_LEVELS = [
+    { value: 100, label: '100 - Administrator', desc: 'Full system access' },
+    { value: 95, label: '95 - Principal', desc: 'All features (except system settings)' },
+    { value: 90, label: '90 - Vice Principal', desc: 'Teaching + basic admin features' },
+    { value: 75, label: '75 - Coordinator', desc: 'Teaching + limited admin features' },
+    { value: 65, label: '65 - Head Teacher', desc: 'Teaching features only' },
+    { value: 50, label: '50 - Teacher', desc: 'Own classes only' },
+    { value: 30, label: '30 - Accountant', desc: 'Finance features only' },
+    { value: 20, label: '20 - Assistant', desc: 'Support staff (limited)' },
+    { value: 10, label: '10 - Student', desc: 'Own data only' },
+];
+
+/* Assigned Dashboard Options */
+const DASHBOARD_OPTIONS = [
+    { value: 'admin', label: 'Admin Executive Dashboard', desc: 'Full school overview, financial KPIs, collection charts & admin stats', icon: 'bi-speedometer2', color: '#6366f1' },
+    { value: 'teacher', label: 'Teacher Academic Dashboard', desc: 'Assigned classes, student attendance & exam marks entry', icon: 'bi-journal-check', color: '#10b981' },
+    { value: 'accountant', label: 'Accountant Finance Dashboard', desc: 'Fee collection, receipt printing, fee slips & expense tracking', icon: 'bi-cash-coin', color: '#f59e0b' },
+    { value: 'student', label: 'Student Portal Dashboard', desc: 'Student fee slips, attendance history & result cards', icon: 'bi-mortarboard', color: '#0ea5e9' },
+    { value: 'generic', label: 'Generic Staff Dashboard', desc: 'Standard overview & quick action shortcuts for support staff', icon: 'bi-person-workspace', color: '#64748b' },
+];
+
 /* ─────────────────────────────────────────────────────────────────────────────
-   PAGE TREE  —  every module maps to its sub-pages with page-level keys
+   PAGE TREE   every module maps to its sub-pages with page-level keys
    These page-level keys are stored in role_permissions.module_name column
 ───────────────────────────────────────────────────────────────────────────── */
 type PageDef = { key: string; label: string; icon: string; desc: string };
@@ -52,6 +78,7 @@ const PAGE_TREE: Record<string, ModuleDef> = {
         label: 'Students', icon: 'bi-person-graduation', color: '#0ea5e9',
         pages: [
             { key: 'students.details', label: 'Student List', icon: 'bi-list-ul', desc: 'Browse, search and filter all students' },
+            { key: 'students.families', label: 'Family Directory', icon: 'bi-people', desc: 'Family-wise student directory & balance management' },
             { key: 'students.admission', label: 'New Admission', icon: 'bi-person-plus', desc: 'Register a new student' },
             { key: 'students.import', label: 'Import Students', icon: 'bi-file-earmark-arrow-up', desc: 'Bulk import via Excel file' },
             { key: 'students.profile', label: 'Student Profile', icon: 'bi-person-badge', desc: 'View individual student profile page' },
@@ -66,9 +93,16 @@ const PAGE_TREE: Record<string, ModuleDef> = {
             { key: 'academic.subjects', label: 'Subjects', icon: 'bi-journal-text', desc: 'Manage subject records' },
             { key: 'academic.teachers', label: 'Teacher Assignments', icon: 'bi-person-workspace', desc: 'Assign teachers to classes/subjects' },
             { key: 'academic.promotion', label: 'Promotion', icon: 'bi-arrow-up-circle', desc: 'Promote students to next class' },
-            { key: 'academic.examination', label: 'Enter Marks', icon: 'bi-pencil-square', desc: 'Enter exam marks per subject' },
-            { key: 'academic.marks-sheet', label: 'Marks Sheet', icon: 'bi-table', desc: 'View class-wide marks sheet' },
-            { key: 'academic.result-card', label: 'Result Cards', icon: 'bi-file-earmark-text', desc: 'Print individual result cards' },
+        ],
+    },
+    examination: {
+        label: 'Examination', icon: 'bi-clipboard-check-fill', color: '#7c3aed',
+        pages: [
+            { key: 'academic.examination', label: 'Marks Entry', icon: 'bi-pencil-square', desc: 'Enter exam marks per subject' },
+            { key: 'academic.examination.test-marking', label: 'Test Marking', icon: 'bi-journal-check', desc: 'Enter class test marks' },
+            { key: 'academic.marks-sheet', label: 'Marks Sheet', icon: 'bi-table', desc: 'View class-wide marks sheet (Incharge only)' },
+            { key: 'academic.result-card', label: 'Result Cards', icon: 'bi-file-earmark-text', desc: 'Print individual result cards (Incharge only)' },
+            { key: 'academic.examination.approvals', label: 'Marks Approval & Publishing', icon: 'bi-shield-check', desc: 'Approve & publish marks to Student Portal' },
         ],
     },
     hrm: {
@@ -84,9 +118,11 @@ const PAGE_TREE: Record<string, ModuleDef> = {
             { key: 'fees.heads', label: 'Fee Heads', icon: 'bi-tags', desc: 'Define fee categories / heads' },
             { key: 'fees.plans', label: 'Fee Plans', icon: 'bi-card-list', desc: 'Create and manage fee plans' },
             { key: 'fees.generate', label: 'Generate Slips', icon: 'bi-receipt', desc: 'Generate monthly fee slips' },
+            { key: 'fees.print', label: 'Print Slips', icon: 'bi-printer', desc: 'Batch print monthly fee slips' },
             { key: 'fees.collect', label: 'Collect Fees', icon: 'bi-cash-stack', desc: 'Receive and record fee payments' },
             { key: 'fees.admission', label: 'Admission Fees', icon: 'bi-cash-coin', desc: 'Collect one-time admission fees' },
             { key: 'fees.opening-balance', label: 'Opening Balance', icon: 'bi-clock-history', desc: 'Set prior dues / opening balance' },
+            { key: 'fees.exam-collection', label: 'Exam Fees', icon: 'bi-cash-coin', desc: 'Collect exam fees' },
         ],
     },
     expenses: {
@@ -95,6 +131,7 @@ const PAGE_TREE: Record<string, ModuleDef> = {
             { key: 'expenses.categories', label: 'Categories', icon: 'bi-folder', desc: 'Manage expense categories' },
             { key: 'expenses.list', label: 'All Expenses', icon: 'bi-list-check', desc: 'Browse all expense records' },
             { key: 'expenses.add', label: 'Add Expense', icon: 'bi-plus-square', desc: 'Record a new expense entry' },
+            { key: 'expenses.edit', label: 'Edit Expense', icon: 'bi-pencil-square', desc: 'Edit expense entries' },
         ],
     },
     attendance: {
@@ -109,10 +146,12 @@ const PAGE_TREE: Record<string, ModuleDef> = {
     reports: {
         label: 'Reports', icon: 'bi-bar-chart-fill', color: '#64748b',
         pages: [
+            { key: 'reports.monthly', label: 'Monthly Report', icon: 'bi-calendar-month', desc: 'Monthly summary & collection report' },
             { key: 'reports.students', label: 'Student Reports', icon: 'bi-person-lines-fill', desc: 'Student-related report views' },
             { key: 'reports.results', label: 'Result Reports', icon: 'bi-bar-chart-steps', desc: 'Exam result reports' },
             { key: 'reports.expenses', label: 'Expense Reports', icon: 'bi-graph-down', desc: 'Financial expense summaries' },
             { key: 'reports.family-fee', label: 'Family Fee Reports', icon: 'bi-people-fill', desc: 'Family fee summary reports' },
+            { key: 'reports.admission', label: 'Admission Reports', icon: 'bi-person-badge-fill', desc: 'New admissions & fee collection reports' },
         ],
     },
     settings: {
@@ -139,8 +178,9 @@ export default function RolesPage() {
         Object.fromEntries(Object.keys(PAGE_TREE).map(k => [k, true]))
     );
     const [formData, setFormData] = useState<Role>({
-        id: 0, role_name: '', description: '', is_system_default: false, permissions: [],
+        id: 0, role_name: '', description: '', role_level: 50, is_system_default: false, is_custom: true, permissions: [],
     });
+    const [confirmModal, setConfirmModal] = useState<{ show: boolean; assignedCount: number; roleId: number; originalLevel?: number } | null>(null);
     const { hasPermission } = useAuth();
 
     // Replaced local showToast with global one.
@@ -156,7 +196,7 @@ export default function RolesPage() {
 
     const fetchRoles = async () => {
         try {
-            const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "https://shmool.onrender.com"}` + '/roles');
+            const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "https://shmool.onrender.com"}/roles`);
             const data = await res.json();
             setRoles(data);
         } catch { showToastMsg('danger', 'Failed to load roles'); }
@@ -177,20 +217,41 @@ export default function RolesPage() {
                 if (parent) return { module_name: page.key, can_read: parent.can_read, can_write: parent.can_write, can_delete: parent.can_delete };
             }
 
-            // 3. Default — no access
+            // 3. Default no access
             return { module_name: page.key, can_read: false, can_write: false, can_delete: false };
         });
     };
 
     const handleEdit = (role: Role) => {
-        setFormData({ ...role, permissions: buildFormPerms(role.permissions || []) });
+        setFormData({
+            ...role,
+            role_level: role.role_level || 50,
+            dashboard_access: role.dashboard_access || (
+                (role.role_level || 50) >= 90 ? 'admin' :
+                    (role.role_level || 50) >= 50 ? 'teacher' :
+                        (role.role_level || 50) >= 20 ? 'accountant' : 'student'
+            ),
+            permissions: buildFormPerms(role.permissions || [])
+        });
         setExpanded(Object.fromEntries(Object.keys(PAGE_TREE).map(k => [k, true])));
         setView('form');
     };
 
+    const handleClone = async (roleId: number) => {
+        try {
+            setSaving(true);
+            const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "https://shmool.onrender.com"}/roles/${roleId}/clone`, { method: 'POST' });
+            if (res.ok) {
+                fetchRoles();
+                showToastMsg('success', 'Role cloned successfully! Edit the new role to customize it.');
+            } else showToastMsg('danger', 'Failed to clone role');
+        } catch { showToastMsg('danger', 'Server error'); }
+        finally { setSaving(false); }
+    };
+
     const handleCreate = () => {
         setFormData({
-            id: 0, role_name: '', description: '', is_system_default: false,
+            id: 0, role_name: '', description: '', role_level: 50, dashboard_access: 'admin', is_system_default: false, is_custom: true,
             permissions: ALL_PAGES.map(p => ({ module_name: p.key, can_read: false, can_write: false, can_delete: false })),
         });
         setExpanded(Object.fromEntries(Object.keys(PAGE_TREE).map(k => [k, true])));
@@ -208,21 +269,43 @@ export default function RolesPage() {
 
     const handleSave = async (e: React.FormEvent) => {
         e.preventDefault();
+
+        // If editing existing role with assigned users, show confirmation modal
+        if (formData.id !== 0 && (formData.assigned_count ?? 0) > 0) {
+            setConfirmModal({ show: true, assignedCount: formData.assigned_count ?? 0, roleId: formData.id, originalLevel: formData.role_level });
+            return;
+        }
+
+        await performSave(true);
+    };
+
+    const performSave = async (applyToAssigned: boolean = true) => {
         setSaving(true);
-        const url = formData.id === 0 ? `${process.env.NEXT_PUBLIC_API_URL || "https://shmool.onrender.com"}` + '/roles' : `${process.env.NEXT_PUBLIC_API_URL || "https://shmool.onrender.com"}/roles/${formData.id}`;
+        const url = formData.id === 0 ? `${process.env.NEXT_PUBLIC_API_URL || "https://shmool.onrender.com"}/roles` : `${process.env.NEXT_PUBLIC_API_URL || "https://shmool.onrender.com"}/roles/${formData.id}?apply_to_assigned=${applyToAssigned}`;
         const method = formData.id === 0 ? 'POST' : 'PUT';
         try {
             const res = await fetch(url, {
                 method,
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(formData),
+                body: JSON.stringify({ ...formData, role_level: formData.role_level || 50 }),
             });
             if (res.ok) {
                 setView('list');
                 fetchRoles();
+                setConfirmModal(null);
                 showToastMsg('success', formData.id === 0 ? 'Role created successfully' : 'Role updated successfully');
-            } else showToastMsg('danger', 'Failed to save role');
-        } catch { showToastMsg('danger', 'Server error'); }
+            } else {
+                let errorMsg = 'Failed to save role';
+                try {
+                    const error = await res.json();
+                    errorMsg = error.message || error.error || errorMsg;
+                } catch (e) {
+                    const txt = await res.text().catch(() => '');
+                    if (txt) errorMsg = txt;
+                }
+                showToastMsg('danger', errorMsg);
+            }
+        } catch (err: any) { showToastMsg('danger', err?.message || 'Server error'); }
         finally { setSaving(false); }
     };
 
@@ -319,9 +402,9 @@ export default function RolesPage() {
                     {/* Legend */}
                     <div className="d-flex flex-wrap gap-4 mb-4">
                         {[
-                            { icon: 'bi-eye-fill', color: '#0ea5e9', label: 'Read — View only access' },
-                            { icon: 'bi-pencil-fill', color: '#10b981', label: 'Write — Create & edit access' },
-                            { icon: 'bi-trash3-fill', color: '#ef4444', label: 'Delete — Remove records access' },
+                            { icon: 'bi-eye-fill', color: '#0ea5e9', label: 'Read View only access' },
+                            { icon: 'bi-pencil-fill', color: '#10b981', label: 'Write Create & edit access' },
+                            { icon: 'bi-trash3-fill', color: '#ef4444', label: 'Delete Remove records access' },
                         ].map(l => (
                             <span key={l.label} className="d-flex align-items-center gap-2 small fw-semibold" style={{ color: '#64748b' }}>
                                 <i className={`bi ${l.icon}`} style={{ color: l.color }} /> {l.label}
@@ -355,14 +438,30 @@ export default function RolesPage() {
                                             <div className="d-flex justify-content-between align-items-start mb-3">
                                                 <div>
                                                     <h5 className="fw-bold mb-1" style={{ color: 'var(--primary-dark)' }}>{role.role_name}</h5>
-                                                    <p className="text-muted small mb-0" style={{ minHeight: 36 }}>{role.description || 'No description'}</p>
+                                                    <p className="text-muted small mb-1" style={{ minHeight: 28 }}>{role.description || 'No description'}</p>
+                                                    {(() => {
+                                                        const dashInfo = DASHBOARD_OPTIONS.find(d => d.value === (role.dashboard_access || 'admin')) || DASHBOARD_OPTIONS[0];
+                                                        return (
+                                                            <span className="badge rounded-pill px-2.5 py-1 border text-dark shadow-sm mb-2" style={{ background: '#f8fafc', fontSize: '0.68rem', fontWeight: 700 }}>
+                                                                <i className={`bi ${dashInfo.icon} me-1`} style={{ color: dashInfo.color }} />
+                                                                {dashInfo.label}
+                                                            </span>
+                                                        );
+                                                    })()}
                                                 </div>
-                                                {role.is_system_default && (
-                                                    <span className="badge rounded-pill px-2 py-1 ms-2 flex-shrink-0"
-                                                        style={{ background: 'linear-gradient(90deg,#6366f1,#8b5cf6)', color: '#fff', fontSize: '0.7rem' }}>
-                                                        <i className="bi bi-lock-fill me-1" />System
-                                                    </span>
-                                                )}
+                                                <div className="d-flex flex-column gap-1 ms-2 flex-shrink-0">
+                                                    {role.is_system_default && (
+                                                        <span className="badge rounded-pill px-2 py-1"
+                                                            style={{ background: 'linear-gradient(90deg,#6366f1,#8b5cf6)', color: '#fff', fontSize: '0.7rem' }}>
+                                                            <i className="bi bi-lock-fill me-1" />System
+                                                        </span>
+                                                    )}
+                                                    {(role.assigned_count ?? 0) > 0 && (
+                                                        <span className="badge rounded-pill px-2 py-1" style={{ background: '#e0f2fe', color: '#0369a1', fontSize: '0.7rem' }}>
+                                                            <i className="bi bi-people-fill me-1" />{role.assigned_count} user{role.assigned_count !== 1 ? 's' : ''}
+                                                        </span>
+                                                    )}
+                                                </div>
                                             </div>
 
                                             {/* Pages counter */}
@@ -376,7 +475,7 @@ export default function RolesPage() {
                                                 </span>
                                             </div>
 
-                                            {/* Module dots — one dot per module showing how many pages enabled */}
+                                            {/* Module dots one dot per module showing how many pages enabled */}
                                             <div className="d-flex flex-wrap gap-2 mb-3">
                                                 {Object.entries(PAGE_TREE).map(([mk, mod]) => {
                                                     const modPages = mod.pages;
@@ -423,7 +522,12 @@ export default function RolesPage() {
                                                         <i className="bi bi-sliders me-2" />Configure Permissions
                                                     </button>
                                                 )}
-                                                {!['Administrator', 'Teacher', 'Accountant', 'Student'].includes(role.role_name) && !role.is_system_default && hasPermission('settings', 'delete') && (
+                                                {hasPermission('settings', 'write') && (
+                                                    <button className="btn btn-sm btn-outline-primary rounded-3" onClick={() => handleClone(role.id)} title="Clone Role">
+                                                        <i className="bi bi-files me-1" />Clone
+                                                    </button>
+                                                )}
+                                                {!role.is_system_default && hasPermission('settings', 'delete') && (
                                                     <button className="btn btn-sm btn-outline-danger rounded-3" onClick={() => handleDelete(role.id)} title="Delete Role">
                                                         <i className="bi bi-trash3" />
                                                     </button>
@@ -456,10 +560,10 @@ export default function RolesPage() {
                         </button>
                         <div>
                             <h3 className="h4 fw-bold mb-0" style={{ color: 'var(--primary-dark)' }}>
-                                {formData.id === 0 ? 'Create New Role' : `Edit — ${formData.role_name}`}
+                                {formData.id === 0 ? 'Create New Role' : `Edit ${formData.role_name}`}
                             </h3>
                             <p className="text-muted small mb-0">
-                                Set per-page permissions — control exactly which pages this role can read, edit or delete
+                                Set per-page permissions control exactly which pages this role can read, edit or delete
                             </p>
                         </div>
                     </div>
@@ -494,6 +598,52 @@ export default function RolesPage() {
                                             placeholder="Short description of this role's responsibilities"
                                             style={{ border: '1.5px solid #dee2e6', height: 42 }} />
                                     </div>
+                                    <div className="col-12 col-md-6">
+                                        <label className="form-label fw-semibold small text-uppercase" style={{ letterSpacing: '0.05em', color: 'var(--primary-dark)' }}>
+                                            Role Level
+                                        </label>
+                                        <select className="form-control rounded-3"
+                                            value={formData.role_level || 50}
+                                            onChange={e => setFormData({ ...formData, role_level: parseInt(e.target.value) })}
+                                            style={{ border: '1.5px solid #dee2e6', height: 42 }}>
+                                            {ROLE_LEVELS.map(level => (
+                                                <option key={level.value} value={level.value}>
+                                                    {level.label} - {level.desc}
+                                                </option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                    <div className="col-12 col-md-6">
+                                        <label className="form-label fw-semibold small text-uppercase d-flex align-items-center gap-1" style={{ letterSpacing: '0.05em', color: 'var(--primary-dark)' }}>
+                                            <i className="bi bi-display" style={{ color: '#0f766e' }}></i> Assigned Dashboard Access <span className="text-danger">*</span>
+                                        </label>
+                                        <select className="form-select rounded-3 fw-bold"
+                                            value={formData.dashboard_access || 'admin'}
+                                            onChange={e => setFormData({ ...formData, dashboard_access: e.target.value })}
+                                            style={{ border: '1.5px solid #0f766e', height: 42, color: '#0f766e' }}>
+                                            {DASHBOARD_OPTIONS.map(dash => (
+                                                <option key={dash.value} value={dash.value}>
+                                                    {dash.label} — ({dash.desc})
+                                                </option>
+                                            ))}
+                                        </select>
+                                        <small className="text-muted d-block mt-1">
+                                            <i className="bi bi-info-circle me-1"></i>
+                                            Users assigned to this role will see this specific dashboard interface upon logging in.
+                                        </small>
+                                    </div>
+                                    {formData.id !== 0 && (formData.assigned_count ?? 0) > 0 && (
+                                        <div className="col-12 col-md-6">
+                                            <div className="p-3 rounded-3" style={{ background: '#e0f2fe', border: '1px solid #0ea5e9' }}>
+                                                <p className="fw-semibold small mb-1" style={{ color: '#0369a1' }}>
+                                                    <i className="bi bi-people-fill me-2" />Assigned Users
+                                                </p>
+                                                <p className="mb-0 text-muted small">
+                                                    This role is assigned to <strong>{formData.assigned_count}</strong> user{formData.assigned_count !== 1 ? 's' : ''}. Changes will affect all of them.
+                                                </p>
+                                            </div>
+                                        </div>
+                                    )}
                                 </div>
                             </div>
                         </div>
@@ -705,6 +855,62 @@ export default function RolesPage() {
                             </div>
                         </div>
                     </form>
+                </div>
+            )}
+
+            {/* Confirmation Modal */}
+            {confirmModal?.show && (
+                <div className="position-fixed top-0 start-0 w-100 h-100 d-flex align-items-center justify-content-center"
+                    style={{ background: 'rgba(0,0,0,0.5)', zIndex: 9999 }}>
+                    <div className="card border-0 rounded-4 shadow-lg" style={{ maxWidth: 450, width: '90%' }}>
+                        <div className="card-body p-4">
+                            <div className="mb-3 p-3 rounded-3" style={{ background: '#fef3c7', border: '1px solid #fcd34d' }}>
+                                <h5 className="fw-bold mb-1 d-flex align-items-center gap-2" style={{ color: '#b45309' }}>
+                                    <i className="bi bi-exclamation-triangle-fill" /> Updating Shared Role
+                                </h5>
+                                <p className="mb-0 small" style={{ color: '#92400e' }}>
+                                    This role is assigned to <strong>{confirmModal.assignedCount}</strong> user{confirmModal.assignedCount !== 1 ? 's' : ''}. Your changes will affect all of them.
+                                </p>
+                            </div>
+
+                            <p className="text-muted mb-3">
+                                <i className="bi bi-info-circle me-2" />Choose one of the following options:
+                            </p>
+
+                            <div className="d-flex flex-column gap-2 mb-4">
+                                <button type="button" className="btn btn-sm p-2 text-start rounded-3"
+                                    onClick={() => performSave(true)}
+                                    disabled={saving}
+                                    style={{ background: '#d1fae5', color: '#047857', border: '1.5px solid #10b981', fontWeight: 600 }}>
+                                    <i className="bi bi-check-circle-fill me-2" />
+                                    <div>
+                                        <div style={{ fontSize: '0.9rem' }}>Apply to all {confirmModal.assignedCount} user{confirmModal.assignedCount !== 1 ? 's' : ''}</div>
+                                        <div style={{ fontSize: '0.75rem', opacity: 0.8 }}>Update the shared role for everyone</div>
+                                    </div>
+                                </button>
+
+                                <button type="button" className="btn btn-sm p-2 text-start rounded-3"
+                                    onClick={async () => {
+                                        setConfirmModal(null);
+                                        await handleClone(confirmModal.roleId);
+                                    }}
+                                    disabled={saving}
+                                    style={{ background: '#e0f2fe', color: '#0369a1', border: '1.5px solid #0ea5e9', fontWeight: 600 }}>
+                                    <i className="bi bi-files me-2" />
+                                    <div>
+                                        <div style={{ fontSize: '0.9rem' }}>Clone & edit</div>
+                                        <div style={{ fontSize: '0.75rem', opacity: 0.8 }}>Create a copy for different permissions</div>
+                                    </div>
+                                </button>
+                            </div>
+
+                            <button type="button" className="btn btn-light w-100 rounded-3 fw-semibold"
+                                onClick={() => setConfirmModal(null)}
+                                disabled={saving}>
+                                Cancel
+                            </button>
+                        </div>
+                    </div>
                 </div>
             )}
         </div>

@@ -13,8 +13,11 @@ initScheduler();
 
 // Middleware
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ limit: '50mb', extended: true }));
 app.use('/uploads', express.static('uploads')); // Serve uploaded files
+
+
 
 // Routes
 // Dashboard Route
@@ -54,6 +57,8 @@ app.use('/attendance', require('./routes/attendance'));
 app.use('/exams', require('./routes/exams'));
 // Reports Module Routes
 app.use('/reports', require('./routes/reports'));
+// Notifications Module Route
+app.use('/notifications', require('./routes/notifications'));
 
 app.get('/', (req, res) => {
     res.send('Smart School System API is running');
@@ -100,7 +105,10 @@ async function seedRootUser() {
     }
 }
 
+const { runEssentialMigrations } = require('./migrations');
+
 app.listen(PORT, '0.0.0.0', async () => {
     console.log(`Server is running on port ${PORT}`);
+    await runEssentialMigrations();
     await seedRootUser();
 });

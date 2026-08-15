@@ -1,10 +1,10 @@
 'use client';
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June',
     'July', 'August', 'September', 'October', 'November', 'December'];
 const MONTH_SHORT = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
-const API = `${process.env.NEXT_PUBLIC_API_URL || "https://shmool.onrender.com"}`;
+const API = process.env.NEXT_PUBLIC_API_URL || "https://shmool.onrender.com";
 
 interface SlipData {
     slip_id: number; student_id: number; family_id: string; class_id: number;
@@ -19,7 +19,7 @@ interface Voucher {
     primary: SlipData; siblings: SlipData[];
     family_id: string | null; total_family_amount: number; total_paid: number;
     is_printed: boolean; partial_printed?: boolean; slip_ids: number[];
-    family_members?: { student_id: number; first_name: string; last_name: string; father_name: string; class_name: string; class_id: number }[];
+    family_members?: { student_id: number; first_name: string; last_name: string; father_name: string; class_name: string; class_id: number; section_name?: string }[];
 }
 interface SchoolInfo {
     school_name: string; school_address: string; phone_number: string;
@@ -33,14 +33,16 @@ function fmtDate(d: string | Date | null) {
 }
 function zeroPad(n: number, digits = 6) { return String(n).padStart(digits, '0'); }
 
-function VoucherSlip({ v, serial, month, year, school, filterClassId }: { v: Voucher; serial: number; month: string; year: string; school: SchoolInfo; filterClassId?: string }) {
+/* ============================================================================
+   PREVIOUS VOUCHER DESIGN (PRESERVED IN COMMENTS)
+   ============================================================================
+function OldVoucherSlip({ v, serial, month, year, school, filterClassId }: { v: Voucher; serial: number; month: string; year: string; school: SchoolInfo; filterClassId?: string }) {
     const mIdx = parseInt(month) - 1;
     const monthName = MONTHS[mIdx] || '';
     const voucherNo = `${MONTH_SHORT[mIdx] || 'FEE'}${zeroPad(serial)}`;
     const dueDate = v.primary.due_date ? fmtDate(v.primary.due_date) : '--';
     const allStudents: SlipData[] = [v.primary, ...v.siblings];
 
-    // Build fee rows from line_items for both family and individual slips
     const feeRows: { sr: number; desc: string; amount: number }[] = [];
     let sr = 1;
     for (const item of (v.primary.line_items || [])) {
@@ -51,9 +53,6 @@ function VoucherSlip({ v, serial, month, year, school, filterClassId }: { v: Vou
     if (totalPaid > 0) feeRows.push({ sr: sr++, desc: 'Amount Already Paid', amount: -totalPaid });
     const grandTotal = parseFloat(v.total_family_amount as any) - totalPaid;
 
-    // Fixed 9 rows — matches template exactly
-    // For family vouchers: use family_members from backend (all active siblings)
-    // Sort so filtered-class students appear first when a class filter is active
     type StudentRow = { first_name: string; last_name: string; father_name?: string; class_name?: string; section_name?: string } | null;
     let membersSource = v.family_members && v.family_members.length > 0
         ? [...v.family_members]
@@ -80,8 +79,6 @@ function VoucherSlip({ v, serial, month, year, school, filterClassId }: { v: Vou
 
     return (
         <div style={{ width: '91mm', height: '185mm', border: '1px solid #000', padding: '4mm 5mm', display: 'flex', flexDirection: 'column', boxSizing: 'border-box', flexShrink: 0, fontFamily: 'Arial, sans-serif', overflow: 'hidden', background: '#fff' }}>
-
-            {/* Header: logo + school name */}
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '2mm' }}>
                 {school.school_logo_url
                     ? <img src={school.school_logo_url} alt="logo" style={{ width: '20mm', height: '20mm', objectFit: 'contain', marginRight: '3mm', flexShrink: 0 }} />
@@ -92,11 +89,9 @@ function VoucherSlip({ v, serial, month, year, school, filterClassId }: { v: Vou
             <div style={{ fontSize: '9pt', textAlign: 'center', marginTop: '1mm', marginBottom: '2mm', whiteSpace: 'nowrap' }}>
                 {[school.phone_number, school.school_phone2, school.school_phone3].filter(Boolean).join(' ; ')}
             </div>
-
             <div style={{ borderTop: '1px solid #000', margin: '1mm 0' }} />
             <div style={{ fontSize: '11pt', fontWeight: 'bold', textTransform: 'uppercase', textAlign: 'center', margin: '1mm 0' }}>Monthly Fee Voucher</div>
             <div style={{ borderTop: '1px solid #000', margin: '1mm 0' }} />
-
             <div style={{ fontSize: '9pt', marginTop: '1mm', whiteSpace: 'nowrap' }}>
                 Voucher No: <span style={{ fontSize: '10pt', fontWeight: 'bold', textDecoration: 'underline' }}>{voucherNo}</span>
                 &nbsp;&nbsp;
@@ -107,8 +102,6 @@ function VoucherSlip({ v, serial, month, year, school, filterClassId }: { v: Vou
                 &nbsp;&nbsp;
                 Due date: <span style={{ fontWeight: 'bold', textDecoration: 'underline' }}>{dueDate}</span>
             </div>
-
-            {/* Students Details */}
             <div style={{ fontSize: '9pt', fontWeight: 'bold', marginTop: '1mm', marginBottom: '0.5mm' }}>Students Details</div>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '7.5pt' }}>
                 <thead>
@@ -128,8 +121,6 @@ function VoucherSlip({ v, serial, month, year, school, filterClassId }: { v: Vou
                     ))}
                 </tbody>
             </table>
-
-            {/* Fee Details */}
             <div style={{ fontSize: '9pt', fontWeight: 'bold', marginTop: '1.5mm', marginBottom: '0.5mm' }}>Fee Details</div>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '7.5pt' }}>
                 <thead>
@@ -154,8 +145,6 @@ function VoucherSlip({ v, serial, month, year, school, filterClassId }: { v: Vou
                     </tr>
                 </tbody>
             </table>
-
-            {/* Notes */}
             <div style={{ marginTop: '2mm', fontSize: '7.5pt' }}>
                 <ul style={{ paddingLeft: '10pt', margin: 0 }}>
                     <li style={{ marginBottom: '1mm' }}>Please bring this voucher when you pay your fee.</li>
@@ -167,17 +156,171 @@ function VoucherSlip({ v, serial, month, year, school, filterClassId }: { v: Vou
         </div>
     );
 }
+   ============================================================================ */
+
+/* ============================================================================
+   NEW MONTHLY FEE VOUCHER DESIGN (Strictly matching monthly fee voucher.html)
+   ============================================================================ */
+
+const MIN_STUDENTS = 4;   // always show at least 4 student rows
+const MAX_STUDENTS = 9;   // extend beyond 4 up to 9 as students are added
+const MIN_FEES = 2;       // always show Monthly Fee + Previous Dues
+const MAX_FEES = 4;       // extend beyond base when extra fee-heads are added
+
+function VoucherSlip({ v, serial, month, year, school, filterClassId }: { v: Voucher; serial: number; month: string; year: string; school: SchoolInfo; filterClassId?: string }) {
+    const mIdx = parseInt(month) - 1;
+    const monthName = MONTHS[mIdx] || '';
+    const voucherNo = `${MONTH_SHORT[mIdx] || 'FEE'}${zeroPad(serial)}`;
+    const dueDate = v.primary.due_date ? fmtDate(v.primary.due_date) : '--';
+    const issueDate = v.primary.issue_date ? fmtDate(v.primary.issue_date) : fmtDate(new Date());
+
+    const allStudents: SlipData[] = [v.primary, ...v.siblings];
+
+    let membersSource = v.family_members && v.family_members.length > 0
+        ? [...v.family_members]
+        : allStudents.map(s => ({
+            first_name: s.first_name,
+            last_name: s.last_name,
+            father_name: s.father_name,
+            class_name: s.class_name,
+            section_name: (s as any).section_name,
+            class_id: s.c_class_id
+        }));
+
+    if (filterClassId && v.voucher_type === 'family') {
+        membersSource.sort((a, b) => {
+            const aMatch = (a as any).class_id?.toString() === filterClassId ? 0 : 1;
+            const bMatch = (b as any).class_id?.toString() === filterClassId ? 0 : 1;
+            return aMatch - bMatch;
+        });
+    }
+
+    const rawStudentRows = membersSource.map(m => ({
+        name: `${m.first_name || ''} ${m.last_name || ''}`.trim(),
+        father: m.father_name || '',
+        cls: `${m.class_name || ''}${(m as any).section_name ? ` (${(m as any).section_name})` : ''}`
+    })).slice(0, MAX_STUDENTS);
+
+    const studentRows = [...rawStudentRows];
+    while (studentRows.length < MIN_STUDENTS) {
+        studentRows.push({ name: '', father: '', cls: '' });
+    }
+
+    const rawFeeItems: { desc: string; amount: number }[] = [];
+    for (const item of (v.primary.line_items || [])) {
+        const displayName = item.head_name.replace('Family Monthly Fee', 'Monthly Fee');
+        rawFeeItems.push({ desc: `${displayName} (${monthName})`, amount: parseFloat(item.amount as any) || 0 });
+    }
+    const totalPaid = parseFloat(v.total_paid as any) || 0;
+    if (totalPaid > 0) {
+        rawFeeItems.push({ desc: 'Amount Already Paid', amount: -totalPaid });
+    }
+
+    const feeRows = rawFeeItems.slice(0, MAX_FEES);
+    while (feeRows.length < MIN_FEES) {
+        feeRows.push({ desc: '', amount: 0 });
+    }
+
+    const totalAmount = feeRows.reduce((sum, f) => sum + (f.amount || 0), 0);
+
+    const studentCount = Math.max(MIN_STUDENTS, Math.min(rawStudentRows.length, MAX_STUDENTS));
+    const feeCount = Math.max(MIN_FEES, Math.min(feeRows.length, MAX_FEES));
+    const extraRows = (studentCount - MIN_STUDENTS) + (feeCount - MIN_FEES);
+    const compactClass = extraRows >= 3 ? ' table-compact' : '';
+
+    const schoolName = school.school_name || 'Falcon School System';
+    const schoolAddress = school.school_address || '83/M Madina Colony Vehari';
+    const schoolPhones = [school.phone_number, school.school_phone2, school.school_phone3].filter(Boolean).join(' ; ') || '0300-7730141 ; 0308-7696430 ; 067-3366383';
+
+    return (
+        <div className={`voucher${compactClass}`}>
+            <div className="voucher-header">
+                {school.school_logo_url ? (
+                    <img src={school.school_logo_url} alt="Logo" className="logo-placeholder" style={{ objectFit: 'contain' }} />
+                ) : (
+                    <div className="logo-placeholder"></div>
+                )}
+                <div className="school-name">{schoolName}</div>
+            </div>
+            <div className="school-address">{schoolAddress}</div>
+            <div className="school-contact">{schoolPhones}</div>
+            <div className="divider"></div>
+            <div className="voucher-type">Monthly Fee Voucher</div>
+            <div className="divider"></div>
+            <div className="voucher-details">
+                <span className="detail-group">Voucher No: <span className="number">{voucherNo}</span></span>
+                <span className="detail-group">Family ID: <span className="family-id">{v.family_id || '—'}</span></span>
+            </div>
+            <div className="voucher-date-line">
+                <span className="detail-group">Issue date: <span className="date-value">{issueDate}</span></span>
+                <span className="detail-group">Due date: <span className="date-value">{dueDate}</span></span>
+            </div>
+            <div className="voucher-body">
+                <div className="student-details">Students Details</div>
+                <table className="students-table">
+                    <thead>
+                        <tr>
+                            <th>Student Name</th>
+                            <th>Father Name</th>
+                            <th>Class (Sec)</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {studentRows.map((s, i) => (
+                            <tr key={i}>
+                                <td>{s.name || '\u00A0'}</td>
+                                <td>{s.father || '\u00A0'}</td>
+                                <td>{s.cls || '\u00A0'}</td>
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
+
+                <div className="fee-desc">Fee Details</div>
+                <table className="fee-table">
+                    <thead>
+                        <tr>
+                            <th>Sr.#</th>
+                            <th>Fee Description</th>
+                            <th>Amount</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {feeRows.map((f, i) => (
+                            <tr key={i}>
+                                <td>{i + 1}</td>
+                                <td>{f.desc || '\u00A0'}</td>
+                                <td>{f.desc ? fmtAmt(f.amount) : '0/-'}</td>
+                            </tr>
+                        ))}
+                        <tr className="total-row">
+                            <td>{feeRows.length + 1}</td>
+                            <td>Total Amount</td>
+                            <td>{fmtAmt(totalAmount)}</td>
+                        </tr>
+                    </tbody>
+                </table>
+
+                <div className="rules-box">
+                    <span className="rule-line">1. Fee must be paid before the due date.</span>
+                    <span className="rule-line">2. A fine/late fee will apply after the due date.</span>
+                    <span className="rule-line">3. Fee must be deposited only at the school-designated bank/counter.</span>
+                    <span className="rule-line">4. Fee once paid is non-refundable under any circumstances.</span>
+                </div>
+                <div className="filler"></div>
+            </div>
+        </div>
+    );
+}
 
 function VoucherCard({ v, idx, selected, onToggle, filterClassId }: { v: Voucher; idx: number; selected: boolean; onToggle: () => void; filterClassId?: string }) {
     const remaining = parseFloat(v.total_family_amount as any) - parseFloat(v.total_paid as any);
     const isFam = v.voucher_type === 'family';
 
-    // Use family_members if available (covers cross-class families where siblings have no slip of their own)
     const allMembers = (v.family_members && v.family_members.length > 0)
         ? v.family_members
         : [v.primary, ...v.siblings];
 
-    // When a class filter is active, show the first student from that class as the card title
     const displayPrimary = (filterClassId && isFam && v.family_members && v.family_members.length > 0)
         ? (v.family_members.find(m => m.class_id?.toString() === filterClassId) || v.primary)
         : v.primary;
@@ -252,23 +395,26 @@ export default function PrintSlipsPage() {
 
     useEffect(() => {
         fetch(`${API}/academic`).then(r => r.json()).then(setClasses).catch(() => { });
-        // School info lives in school_settings table (via /settings), NOT system_settings
         fetch(`${API}/settings`).then(r => r.json()).then((data: any) => {
             if (data && typeof data === 'object' && !Array.isArray(data)) {
+                const getLogo = (raw?: string) => {
+                    if (!raw || !raw.trim()) return `${API}/icon.png`;
+                    const s = raw.trim();
+                    if (s.startsWith('data:') || s.startsWith('http://') || s.startsWith('https://')) return s;
+                    return `${API}/${s.replace(/^\/+/, '')}`;
+                };
                 setSchool({
                     school_name: data.school_name || '',
                     school_address: data.address || '',
                     phone_number: data.contact_number || '',
                     school_phone2: '',
                     school_phone3: '',
-                    // logo_url is a relative path like /uploads/school_logo.png — prefix API host
-                    school_logo_url: data.logo_url ? `${API}${data.logo_url}` : ''
+                    school_logo_url: getLogo(data.logo_url)
                 });
             }
         }).catch(() => { });
     }, []);
 
-    // Fetch available months for the selected year
     useEffect(() => {
         fetch(`${API}/fee-slips/available-months?year=${year}`)
             .then(r => r.json())
@@ -290,7 +436,6 @@ export default function PrintSlipsPage() {
                 }
             })
             .catch(() => { });
-        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [year]);
 
     const loadQueue = async () => {
@@ -324,13 +469,10 @@ export default function PrintSlipsPage() {
     vouchers.forEach((v, i) => { voucherSerials.set(v.slip_ids[0], i + 1); });
     const getSerial = (v: Voucher) => voucherSerials.get(v.slip_ids[0]) || 1;
 
-    // Trigger window.print() after React re-renders with printing=true
-    // Waits for all <img> elements to finish loading so the logo is visible in print
     useEffect(() => {
         if (!printing) return;
         let cancelled = false;
 
-        // Small initial delay so React can commit the print DOM first
         const t = setTimeout(() => {
             if (cancelled) return;
 
@@ -344,17 +486,14 @@ export default function PrintSlipsPage() {
             const pending = imgs.filter(img => !img.complete || img.naturalWidth === 0);
 
             if (pending.length === 0) {
-                // All images already loaded (e.g. from cache)
                 doAfterImagesLoad();
             } else {
-                // Wait for every pending image to either load or error out
                 let done = 0;
                 const onDone = () => { done++; if (done >= pending.length) doAfterImagesLoad(); };
                 pending.forEach(img => {
                     img.addEventListener('load', onDone, { once: true });
                     img.addEventListener('error', onDone, { once: true });
                 });
-                // Safety fallback: print after 3 seconds regardless
                 setTimeout(() => { if (!cancelled) doAfterImagesLoad(); }, 3000);
             }
         }, 150);
@@ -387,9 +526,205 @@ export default function PrintSlipsPage() {
             .sl-layout { display: block !important; overflow: visible !important; height: auto !important; }
             .sl-main { margin-left: 0 !important; padding: 0 !important; width: 297mm !important; max-width: 297mm !important; overflow: visible !important; max-height: unset !important; height: auto !important; min-height: 0 !important; }
             .fee-print-page { height: 210mm !important; overflow: hidden !important; }
-            body, html { margin: 0 !important; padding: 0 !important; background: #fff !important; overflow: visible !important; }
+            body, html { margin: 0 !important; padding: 0 !important; background: #fff !important; overflow: visible !important; font-family: 'Times New Roman', Times, serif; color: #000; }
             * { box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
         }
+
+        .fee-print-page {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: 0.5mm;
+            width: 297mm;
+            height: 210mm;
+            padding: 8mm;
+            box-sizing: border-box;
+            background: #fff;
+            color: #000;
+            font-family: 'Times New Roman', Times, serif;
+        }
+
+        .cut-separator {
+            position: relative;
+            width: 0;
+            align-self: stretch;
+            border-left: 1.2pt dashed #555;
+            margin: 0 1mm;
+        }
+        .cut-separator::before {
+            content: "\\2702";
+            position: absolute;
+            top: -4.2mm;
+            left: 50%;
+            transform: translateX(-50%) rotate(90deg);
+            font-size: 8pt;
+            color: #555;
+            background: #fff;
+            padding: 0 0.5mm;
+        }
+
+        .voucher {
+            width: 92mm;
+            height: 190mm;
+            border: 1.5pt solid #000;
+            outline: 0.5pt solid #000;
+            outline-offset: 1.5pt;
+            padding: 4mm 4mm;
+            display: flex;
+            flex-direction: column;
+            box-sizing: border-box;
+            page-break-inside: avoid;
+            break-inside: avoid;
+            overflow: hidden;
+            background: #fff;
+            color: #000;
+            font-family: 'Times New Roman', Times, serif;
+        }
+        .voucher-header {
+            display: flex;
+            align-items: center;
+            gap: 3mm;
+            flex: 0 0 auto;
+        }
+        .logo-placeholder {
+            width: 24mm;
+            height: 20mm;
+            flex: 0 0 auto;
+            border: none;
+            background: transparent;
+        }
+        .school-name {
+            flex: 1 1 auto;
+            font-size: 12.5pt;
+            font-weight: bold;
+            text-transform: uppercase;
+            line-height: 1.15;
+            text-align: left;
+        }
+        .school-address, .school-contact {
+            font-size: 9.5pt;
+            text-align: center;
+            width: 100%;
+            flex: 0 0 auto;
+        }
+        .school-address { margin-top: 1mm; }
+        .school-contact { margin-top: 0.5mm; white-space: nowrap; }
+        .divider { width: 100%; border-top: 1pt solid #000; margin: 1mm 0; flex: 0 0 auto; }
+        .voucher-type {
+            font-size: 12.5pt;
+            font-weight: bold;
+            text-transform: uppercase;
+            text-align: center;
+            margin: 0.3mm 0;
+            flex: 0 0 auto;
+        }
+        .voucher-details {
+            font-size: 10.5pt;
+            margin-top: 1mm;
+            white-space: nowrap;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            flex: 0 0 auto;
+        }
+        .voucher-details .detail-group:first-child { text-align: left; }
+        .voucher-details .detail-group:last-child { text-align: right; }
+        .voucher-details span.number,
+        .voucher-details span.family-id {
+            font-size: 10.5pt;
+            font-weight: bold;
+            text-decoration: underline;
+        }
+        .voucher-date-line {
+            font-size: 9.5pt;
+            margin-top: 0.5mm;
+            white-space: nowrap;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            flex: 0 0 auto;
+        }
+        .voucher-date-line .detail-group:first-child { text-align: left; }
+        .voucher-date-line .detail-group:last-child { text-align: right; }
+        .voucher-date-line span.date-value {
+            font-size: 9.5pt;
+            font-weight: bold;
+            text-decoration: underline;
+        }
+
+        .voucher-body {
+            flex: 1 1 auto;
+            display: flex;
+            flex-direction: column;
+            min-height: 0;
+        }
+
+        .student-details, .fee-desc {
+            font-size: 11pt;
+            font-weight: bold;
+            margin-top: 1.5mm;
+            border-bottom: 1pt solid #000;
+            padding-bottom: 0.3mm;
+            flex: 0 0 auto;
+        }
+
+        .students-table, .fee-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 0.5mm;
+            font-size: 11pt;
+            table-layout: fixed;
+            flex: 0 0 auto;
+        }
+        .students-table th, .students-table td,
+        .fee-table th, .fee-table td {
+            border: 1px solid #000;
+            padding: 0.5mm 1mm;
+            line-height: 1.15;
+            height: 5.2mm;
+            word-wrap: break-word;
+            box-sizing: border-box;
+            overflow: hidden;
+        }
+        .students-table th, .fee-table th {
+            font-weight: bold;
+            background-color: #e9e9e9;
+            height: 5.2mm;
+        }
+
+        .voucher.table-compact .students-table,
+        .voucher.table-compact .fee-table {
+            font-size: 9.8pt;
+        }
+        .voucher.table-compact .students-table th,
+        .voucher.table-compact .students-table td,
+        .voucher.table-compact .fee-table th,
+        .voucher.table-compact .fee-table td {
+            height: 4.5mm;
+            padding: 0.35mm 1mm;
+        }
+
+        .students-table th:nth-child(1), .students-table td:nth-child(1) { width: 37%; text-align: center; }
+        .students-table th:nth-child(2), .students-table td:nth-child(2) { width: 37%; text-align: center; }
+        .students-table th:nth-child(3), .students-table td:nth-child(3) { width: 26%; text-align: center; }
+
+        .fee-table th:nth-child(1), .fee-table td:nth-child(1) { width: 12%; text-align: center; }
+        .fee-table th:nth-child(2), .fee-table td:nth-child(2) { width: 58%; text-align: left; }
+        .fee-table th:nth-child(3), .fee-table td:nth-child(3) { width: 30%; text-align: center; }
+        .fee-table .total-row td {
+            font-weight: bold;
+            background-color: #e9e9e9;
+            border-top: 1.5pt solid #000;
+        }
+
+        .rules-box {
+            flex: 0 0 auto;
+            padding-top: 0.8mm;
+            margin-top: 0.8mm;
+            font-size: 8.8pt;
+            line-height: 1.35;
+            border-top: 1pt dashed #000;
+        }
+        .rules-box .rule-line { display: block; }
+        .filler { flex: 1 1 auto; }
     `;
 
     // ── Print layout (replaces entire page content while printing) ──────────
@@ -397,24 +732,23 @@ export default function PrintSlipsPage() {
         return (
             <>
                 <style>{printStyles}</style>
-                <style>{`* { box-sizing: border-box; } body, html { margin: 0; padding: 0; background: #fff !important; }`}</style>
-                <div style={{ fontFamily: 'Arial, sans-serif', margin: 0, padding: 0, background: '#fff', width: '297mm' }}>
+                <div style={{ fontFamily: '"Times New Roman", Times, serif', margin: 0, padding: 0, background: '#fff', width: '297mm' }}>
                     {pages.map((page, pi) => (
                         <div key={pi} className="fee-print-page" style={{
-                            display: 'flex', flexDirection: 'row',
-                            justifyContent: 'space-between', alignItems: 'flex-start',
-                            gap: '3mm',
-                            width: '297mm',
-                            height: '210mm',
-                            overflow: 'hidden',
                             pageBreakAfter: pi < pages.length - 1 ? 'always' : 'auto',
                             breakAfter: pi < pages.length - 1 ? 'page' : 'auto',
-                            padding: '5mm 10mm',
-                            boxSizing: 'border-box'
                         }}>
-                            {page.map((v, vi) => <VoucherSlip key={vi} v={v} serial={getSerial(v)} month={month} year={year} school={school} filterClassId={classId || undefined} />)}
+                            {page.map((v, vi) => (
+                                <React.Fragment key={vi}>
+                                    {vi > 0 && <div className="cut-separator" />}
+                                    <VoucherSlip v={v} serial={getSerial(v)} month={month} year={year} school={school} filterClassId={classId || undefined} />
+                                </React.Fragment>
+                            ))}
                             {page.length < 3 && Array.from({ length: 3 - page.length }).map((_, ei) => (
-                                <div key={`e${ei}`} style={{ width: '91mm', flexShrink: 0 }} />
+                                <React.Fragment key={`e${ei}`}>
+                                    <div className="cut-separator" />
+                                    <div style={{ width: '92mm', height: '190mm', flexShrink: 0, visibility: 'hidden' }} />
+                                </React.Fragment>
                             ))}
                         </div>
                     ))}
@@ -427,7 +761,6 @@ export default function PrintSlipsPage() {
     return (
         <>
             <style>{printStyles}</style>
-            {/* Hidden preload: browser fetches & caches the logo image before print is triggered */}
             {school.school_logo_url && (
                 <img src={school.school_logo_url} alt="" aria-hidden="true"
                     style={{ position: 'absolute', width: 1, height: 1, opacity: 0, pointerEvents: 'none' }} />
@@ -464,7 +797,7 @@ export default function PrintSlipsPage() {
                             </div>
                             <div className="col-md-2">
                                 <label className="form-label fw-bold small text-muted">Year</label>
-                                <input type="number" className="form-control" value={year} onChange={e => setYear(e.target.value)} />
+                                <input type="number" className="form-control" value={year} onKeyDown={e => ['e', 'E', '+', '-', '.'].includes(e.key) && e.preventDefault()} onChange={e => setYear(e.target.value)} />
                             </div>
                             <div className="col-md-3">
                                 <label className="form-label fw-bold small text-muted">Class Filter (optional)</label>
@@ -578,11 +911,11 @@ export default function PrintSlipsPage() {
                                     <p className="text-muted small">Marking as printed prevents duplicate vouchers from being issued.</p>
                                     <div className="alert alert-info py-2 small mb-0">
                                         <i className="bi bi-info-circle me-1"></i>
-                                        {selectedVouchers.filter(v => v.voucher_type === 'family').length} family voucher(s) — all siblings marked together.
+                                        {selectedVouchers.filter(v => v.voucher_type === 'family').length} family voucher(s) all siblings marked together.
                                     </div>
                                 </div>
                                 <div className="modal-footer">
-                                    <button className="btn btn-secondary-custom" onClick={() => setShowConfirm(false)}>No — Print Again</button>
+                                    <button className="btn btn-secondary-custom" onClick={() => setShowConfirm(false)}>No Print Again</button>
                                     <button className="btn btn-primary-custom fw-bold px-4" onClick={markAsPrinted} disabled={markingPrinted}>
                                         {markingPrinted ? <><span className="spinner-border spinner-border-sm me-2"></span>Marking...</> : <><i className="bi bi-check-circle me-2"></i>Yes, Mark as Printed</>}
                                     </button>
@@ -595,4 +928,3 @@ export default function PrintSlipsPage() {
         </>
     );
 }
-

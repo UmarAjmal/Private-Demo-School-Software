@@ -9,1676 +9,1276 @@ console.log('   MASTER SEEDER & SCHEMA INITIALIZATION SCRIPT       ');
 console.log('======================================================');
 
 async function runMasterSeeder() {
-  console.log('Starting execution...');
+    console.log('Starting full schema initialization & data seeding...\n');
 
-  // ====== FROM: create-user-roles.js ======
-  await (async () => {
-    try {
+    // =========================================================================
+    // 1. AUTHENTICATION & USER MANAGEMENT TABLES
+    // =========================================================================
+    await (async () => {
+        try {
+            console.log("🔐 Setting up User & Role Management Tables...");
 
+            // 1.1 app_roles Table
+            await pool.query(`
+                CREATE TABLE IF NOT EXISTS app_roles (
+                    id SERIAL PRIMARY KEY,
+                    role_name VARCHAR(50) NOT NULL UNIQUE,
+                    description TEXT,
+                    role_level INTEGER DEFAULT 50,
+                    is_custom BOOLEAN DEFAULT FALSE,
+                    is_system_default BOOLEAN DEFAULT FALSE,
+                    dashboard_access VARCHAR(50) DEFAULT 'admin',
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+                ALTER TABLE app_roles ADD COLUMN IF NOT EXISTS role_level INTEGER DEFAULT 50;
+                ALTER TABLE app_roles ADD COLUMN IF NOT EXISTS is_custom BOOLEAN DEFAULT FALSE;
+                ALTER TABLE app_roles ADD COLUMN IF NOT EXISTS is_system_default BOOLEAN DEFAULT FALSE;
+                ALTER TABLE app_roles ADD COLUMN IF NOT EXISTS dashboard_access VARCHAR(50) DEFAULT 'admin';
+            `);
 
+            // 1.2 role_permissions Table
+            await pool.query(`
+                CREATE TABLE IF NOT EXISTS role_permissions (
+                    id SERIAL PRIMARY KEY,
+                    role_id INT REFERENCES app_roles(id) ON DELETE CASCADE,
+                    module_name VARCHAR(50) NOT NULL,
+                    can_read BOOLEAN DEFAULT FALSE,
+                    can_write BOOLEAN DEFAULT FALSE,
+                    can_delete BOOLEAN DEFAULT FALSE,
+                    UNIQUE(role_id, module_name)
+                );
+            `);
 
-async function createAuthTables() {
-    try {
-        console.log("Setting up User & Role Management Tables...");
+            // 1.3 app_users Table
+            await pool.query(`
+                CREATE TABLE IF NOT EXISTS app_users (
+                    id SERIAL PRIMARY KEY,
+                    username VARCHAR(50) NOT NULL UNIQUE,
+                    password_hash VARCHAR(255) NOT NULL,
+                    plain_password VARCHAR(255),
+                    full_name VARCHAR(100),
+                    email VARCHAR(100),
+                    role_id INT REFERENCES app_roles(id) ON DELETE SET NULL,
+                    is_active BOOLEAN DEFAULT TRUE,
+                    failed_login_attempts INTEGER DEFAULT 0,
+                    locked_until TIMESTAMP,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+                ALTER TABLE app_users ADD COLUMN IF NOT EXISTS failed_login_attempts INTEGER DEFAULT 0;
+                ALTER TABLE app_users ADD COLUMN IF NOT EXISTS locked_until TIMESTAMP;
+            `);
 
-        // 1. Create Roles Table
-        await pool.query(`
-            CREATE TABLE IF NOT EXISTS app_roles (
-                id SERIAL PRIMARY KEY,
-                role_name VARCHAR(50) NOT NULL UNIQUE,
-                description TEXT,
-                is_system_default BOOLEAN DEFAULT FALSE,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            );
-        `);
+            // 1.4 user_sessions Table
+            await pool.query(`
+                CREATE TABLE IF NOT EXISTS user_sessions (
+                    session_id SERIAL PRIMARY KEY,
+                    user_id INTEGER NOT NULL REFERENCES app_users(id) ON DELETE CASCADE,
+                    session_token TEXT UNIQUE NOT NULL,
+                    ip_address VARCHAR(45),
+                    user_agent TEXT,
+                    remember_me BOOLEAN DEFAULT FALSE,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    last_activity TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    expires_at TIMESTAMP NOT NULL,
+                    is_revoked BOOLEAN DEFAULT FALSE
+                );
+                CREATE INDEX IF NOT EXISTS idx_user_sessions_user ON user_sessions(user_id);
+                CREATE INDEX IF NOT EXISTS idx_user_sessions_token ON user_sessions(session_token);
+            `);
 
-        // 2. Create Permissions Table
-        // We will store permissions as a JSONB object or separate table.
-        // Let's use a separate table for cleaner relational queries
-        await pool.query(`
-            CREATE TABLE IF NOT EXISTS role_permissions (
-                id SERIAL PRIMARY KEY,
-                role_id INT REFERENCES app_roles(id) ON DELETE CASCADE,
-                module_name VARCHAR(50) NOT NULL,
-                can_read BOOLEAN DEFAULT FALSE,
-                can_write BOOLEAN DEFAULT FALSE,
-                can_delete BOOLEAN DEFAULT FALSE,
-                UNIQUE(role_id, module_name)
-            );
-        `);
+            // 1.5 user_direct_permissions Table
+            await pool.query(`
+                CREATE TABLE IF NOT EXISTS user_direct_permissions (
+                    id SERIAL PRIMARY KEY,
+                    user_id INTEGER NOT NULL REFERENCES app_users(id) ON DELETE CASCADE,
+                    module_name VARCHAR(50) NOT NULL,
+                    can_read BOOLEAN DEFAULT FALSE,
+                    can_write BOOLEAN DEFAULT FALSE,
+                    can_delete BOOLEAN DEFAULT FALSE,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(user_id, module_name)
+                );
+            `);
 
-        // 3. Create Users Table
-        await pool.query(`
-            CREATE TABLE IF NOT EXISTS app_users (
-                id SERIAL PRIMARY KEY,
-                username VARCHAR(50) NOT NULL UNIQUE,
-                password_hash VARCHAR(255) NOT NULL,
-                full_name VARCHAR(100),
-                email VARCHAR(100),
-                role_id INT REFERENCES app_roles(id) ON DELETE SET NULL,
-                is_active BOOLEAN DEFAULT TRUE,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            );
-        `);
+            // 1.5 role_audit_log Table
+            await pool.query(`
+                CREATE TABLE IF NOT EXISTS role_audit_log (
+                    id SERIAL PRIMARY KEY,
+                    performed_by INTEGER REFERENCES app_users(id) ON DELETE SET NULL,
+                    action VARCHAR(100) NOT NULL,
+                    details TEXT,
+                    ip_address VARCHAR(50),
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+            `);
 
-        // 4. Seed Administrator Role
-        const roleCheck = await pool.query("SELECT * FROM app_roles WHERE role_name = 'Administrator'");
-        let adminRoleId;
+            // Seed Role Levels
+            const roleLevels = {
+                'Administrator': 100,
+                'Principal': 95,
+                'Vice Principal': 90,
+                'Coordinator': 75,
+                'Primary Head': 65,
+                'Middle Head': 65,
+                'Matric Head': 65,
+                'Teacher': 50,
+                'Accountant': 30,
+                'Assistant': 20,
+                'Student': 10
+            };
 
-        if (roleCheck.rows.length === 0) {
-            console.log("Creating default Administrator role...");
-            const newRole = await pool.query(
-                "INSERT INTO app_roles (role_name, description, is_system_default) VALUES ($1, $2, $3) RETURNING id",
-                ['Administrator', 'Full System Access', true]
-            );
-            adminRoleId = newRole.rows[0].id;
-
-            // Assign All Permissions
-            const modules = ['dashboard', 'students', 'teachers', 'academic', 'settings', 'users_roles', 'fees'];
-            
-            for (const mod of modules) {
+            for (const [rName, rLevel] of Object.entries(roleLevels)) {
+                const isSystem = ['Administrator', 'Teacher', 'Accountant', 'Student'].includes(rName);
                 await pool.query(
-                    "INSERT INTO role_permissions (role_id, module_name, can_read, can_write, can_delete) VALUES ($1, $2, $3, $4, $5)",
-                    [adminRoleId, mod, true, true, true]
+                    `INSERT INTO app_roles (role_name, description, role_level, is_system_default, is_custom)
+                     VALUES ($1, $2, $3, $4, $5)
+                     ON CONFLICT (role_name) DO UPDATE SET role_level = $3, is_system_default = $4`,
+                    [rName, `${rName} Role`, rLevel, isSystem, !isSystem]
                 );
             }
 
-            // Create Default Admin User
-            // Password: 'admin123'
-            const salt = await bcrypt.genSalt(10);
-            const hashedPassword = await bcrypt.hash('admin123', salt);
-            
-            await pool.query(
-                "INSERT INTO app_users (username, password_hash, full_name, email, role_id) VALUES ($1, $2, $3, $4, $5)",
-                ['admin', hashedPassword, 'System Administrator', 'admin@smartschool.com', adminRoleId]
-            );
-            console.log("Default Admin user created (user: admin, pass: admin123)");
-
-        } else {
-            console.log("Administrator role already exists.");
-            adminRoleId = roleCheck.rows[0].id;
-        }
-
-        // 5. Seed Core Roles (Teacher, Accountant, Student)
-        const coreRoles = [
-            { name: 'Teacher', desc: 'Faculty & teaching staff' },
-            { name: 'Accountant', desc: 'Finance & fee management' },
-            { name: 'Student', desc: 'Student portal access' }
-        ];
-
-        for (const r of coreRoles) {
-            await pool.query(
-                "INSERT INTO app_roles (role_name, description, is_system_default) VALUES ($1, $2, $3) ON CONFLICT (role_name) DO UPDATE SET is_system_default = true",
-                [r.name, r.desc, true]
-            );
-        }
-        
-        console.log("Core roles secured.");
-
-        // 6. Seed Specific Core Role Permissions explicitly mapping UI toggles
-        console.log("Seeding core role permissions...");
-        const ROLE_PERMS = {
-            'Administrator': [
-                'dashboard', 'students', 'academic', 'hrm', '__exam__', 'expenses', 'fees', 'attendance', 'reports', 'settings',
-                'dash.admin_kpi', 'dash.admin_charts', 'dash.admin_recent',
-                'dash.teacher_kpi', 'dash.teacher_att', 'dash.teacher_classes',
-                'dash.acc_kpi', 'dash.acc_charts',
-                'dash.student_kpi', 'dash.student_att', 'dash.student_fees'
-            ],
-            'Teacher': [
-                'dashboard', 'dash.teacher_kpi', 'dash.teacher_att', 'dash.teacher_classes',
-                'attendance', '__exam__', 'academic', 'students'
-            ],
-            'Accountant': [
-                'dashboard', 'dash.acc_kpi', 'dash.acc_charts',
-                'fees', 'expenses', 'reports', 'students'
-            ],
-            'Student': [
-                'dashboard', 'dash.student_kpi', 'dash.student_att', 'dash.student_fees'
-            ]
-        };
-
-        const rolesRes = await pool.query("SELECT id, role_name FROM app_roles");
-        const roleMap = {};
-        rolesRes.rows.forEach(r => roleMap[r.role_name] = r.id);
-
-        for (const [roleName, modules] of Object.entries(ROLE_PERMS)) {
-            const roleId = roleMap[roleName];
-            if (!roleId) continue;
-
-            // In case we are updating an existing layout, wipe old non-admin permissions to prevent feature bleed.
-            if (roleName !== 'Administrator') {
-                await pool.query("DELETE FROM role_permissions WHERE role_id = $1", [roleId]);
-            }
-
-            for (const mod of modules) {
-                await pool.query(`
-                    INSERT INTO role_permissions (role_id, module_name, can_read, can_write, can_delete)
-                    VALUES ($1, $2, true, true, true)
-                    ON CONFLICT (role_id, module_name)
-                    DO UPDATE SET can_read=true, can_write=true, can_delete=true;
-                `, [roleId, mod]);
-            }
-        }
-        console.log("Core role permissions mapped & stored.");
-
-        console.log("Auth tables setup complete.");
-
-    } catch (err) {
-        console.error("Error setting up auth tables:", err);
-    }
-}
-
-await createAuthTables();
-
-    } catch(err) {
-      console.error('[Error Details in create-user-roles.js]:', err.message);
-    }
-  })();
-  // ====== FROM: create-settings-table.js ======
-  await (async () => {
-    try {
-
-
-async function createSettingsTable() {
-    try {
-        await pool.query(`
-            CREATE TABLE IF NOT EXISTS school_settings (
-                id SERIAL PRIMARY KEY,
-                school_name VARCHAR(255) DEFAULT 'Smart School',
-                address TEXT,
-                contact_number VARCHAR(50),
-                email VARCHAR(255),
-                tagline VARCHAR(255),
-                website VARCHAR(255),
-                logo_url VARCHAR(255),
-                facebook_link VARCHAR(255),
-                twitter_link VARCHAR(255),
-                instagram_link VARCHAR(255),
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            );
-        `);
-        
-        // Check if a row exists, if not insert default
-        const check = await pool.query("SELECT * FROM school_settings LIMIT 1");
-        if (check.rows.length === 0) {
+            // Update dashboard_access for roles
             await pool.query(`
-                INSERT INTO school_settings (school_name, tagline) 
-                VALUES ('My Smart School', 'Excellence in Education')
+                UPDATE app_roles SET dashboard_access = 'teacher' 
+                WHERE LOWER(role_name) LIKE '%teacher%' OR LOWER(role_name) LIKE '%assistant%';
+
+                UPDATE app_roles SET dashboard_access = 'accountant' 
+                WHERE LOWER(role_name) LIKE '%accountant%';
+
+                UPDATE app_roles SET dashboard_access = 'student' 
+                WHERE LOWER(role_name) LIKE '%student%';
+
+                UPDATE app_roles SET dashboard_access = 'admin' 
+                WHERE LOWER(role_name) LIKE '%admin%' OR LOWER(role_name) LIKE '%principal%' OR LOWER(role_name) LIKE '%coordinator%' OR role_level >= 90;
             `);
-            console.log("Default settings inserted.");
-        }
 
-        console.log("School Settings table created successfully!");
-        /* process.exit removed */
-    } catch (err) {
-        console.error("Error creating settings table:", err.message);
-        /* process.exit removed */
-    }
-}
+            // Seed Administrator User (admin)
+            const roleCheck = await pool.query("SELECT id FROM app_roles WHERE role_name = 'Administrator'");
+            const adminRoleId = roleCheck.rows[0].id;
 
-await createSettingsTable();
+            const adminCheck = await pool.query("SELECT id FROM app_users WHERE username = 'admin'");
+            if (adminCheck.rows.length === 0) {
+                const salt = await bcrypt.genSalt(10);
+                const hashedPassword = await bcrypt.hash('admin123', salt);
+                await pool.query(
+                    "INSERT INTO app_users (username, password_hash, plain_password, full_name, email, role_id) VALUES ($1, $2, $3, $4, $5, $6)",
+                    ['admin', hashedPassword, 'admin123', 'System Administrator', 'admin@smartschool.com', adminRoleId]
+                );
+                console.log("   ✓ Default Admin user created (username: admin, password: admin123)");
+            }
 
-    } catch(err) {
-      console.error('[Error Details in create-settings-table.js]:', err.message);
-    }
-  })();
-  // ====== FROM: create-system-settings.js ======
-  await (async () => {
-    try {
+            // Seed Root User (root)
+            const rootCheck = await pool.query("SELECT id FROM app_users WHERE username = 'root'");
+            if (rootCheck.rows.length === 0) {
+                const salt = await bcrypt.genSalt(10);
+                const hashedPassword = await bcrypt.hash('root123', salt);
+                await pool.query(
+                    "INSERT INTO app_users (username, password_hash, plain_password, full_name, email, role_id) VALUES ($1, $2, $3, $4, $5, $6)",
+                    ['root', hashedPassword, 'root123', 'Root Administrator', 'root@smartschool.com', adminRoleId]
+                );
+                console.log("   ✓ Default Root user created (username: root, password: root123)");
+            }
 
+            // Seed Core Role Permissions
+            const ROLE_PERMS = {
+                'Administrator': [
+                    'dashboard', 'students', 'academic', 'hrm', '__exam__', 'expenses', 'fees', 'attendance', 'reports', 'settings',
+                    'dash.admin_kpi', 'dash.admin_charts', 'dash.admin_recent',
+                    'dash.teacher_kpi', 'dash.teacher_att', 'dash.teacher_classes',
+                    'dash.acc_kpi', 'dash.acc_charts',
+                    'dash.student_kpi', 'dash.student_att', 'dash.student_fees'
+                ],
+                'Teacher': [
+                    'dashboard', 'dash.teacher_kpi', 'dash.teacher_att', 'dash.teacher_classes',
+                    'attendance', '__exam__', 'academic', 'students'
+                ],
+                'Accountant': [
+                    'dashboard', 'dash.acc_kpi', 'dash.acc_charts',
+                    'fees', 'expenses', 'reports', 'students'
+                ],
+                'Student': [
+                    'dashboard', 'dash.student_kpi', 'dash.student_att', 'dash.student_fees'
+                ]
+            };
 
-async function createSystemSettingsTable() {
-    try {
-        console.log("Creating/Checking 'system_settings' table...");
-        
-        await pool.query(`
-            CREATE TABLE IF NOT EXISTS system_settings (
-                setting_key VARCHAR(100) PRIMARY KEY,
-                setting_value TEXT NOT NULL,
-                category VARCHAR(50) NOT NULL,
-                description TEXT,
-                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            );
-        `);
+            const rolesRes = await pool.query("SELECT id, role_name FROM app_roles");
+            const roleMap = {};
+            rolesRes.rows.forEach(r => roleMap[r.role_name] = r.id);
 
-        // Seed Default Settings if they don't exist
-        const defaults = [
-            // General
-            { key: 'school_name', value: 'Smart School Academy', category: 'general', desc: 'Official name of the institution' },
-            { key: 'contact_email', value: 'admin@smartschool.edu', category: 'general', desc: 'Primary contact email' },
-            { key: 'phone_number', value: '+1-234-567-8900', category: 'general', desc: 'School phone number' },
-            
-            // Security
-            { key: 'session_timeout_minutes', value: '30', category: 'security', desc: 'User inactivity timeout in minutes' },
-            { key: 'max_login_attempts', value: '5', category: 'security', desc: 'Lock account after X failed attempts' },
-            { key: 'password_min_length', value: '8', category: 'security', desc: 'Minimum allowed password length' },
-            
-            // Database / Maintenance
-            { key: 'maintenance_mode', value: 'false', category: 'system', desc: 'Put system in read-only mode for maintenance' },
-            
-            // Backup
-            { key: 'auto_backup_enabled', value: 'false', category: 'backup', desc: 'Enable automatic scheduled backups' },
-            { key: 'backup_frequency', value: 'daily', category: 'backup', desc: 'Scheduled backup frequency' },
-            { key: 'backup_time', value: '00:00', category: 'backup', desc: 'Time to run backup (HH:MM)' },
-            { key: 'backup_path', value: '', category: 'backup', desc: 'Local folder path where auto-backup file will be downloaded (e.g. C:\\Backups\\School)' }
-        ];
+            for (const [roleName, modules] of Object.entries(ROLE_PERMS)) {
+                const rId = roleMap[roleName];
+                if (!rId) continue;
 
-        for (const setting of defaults) {
-            await pool.query(`
-                INSERT INTO system_settings (setting_key, setting_value, category, description)
-                VALUES ($1, $2, $3, $4)
-                ON CONFLICT (setting_key) DO NOTHING
-            `, [setting.key, setting.value, setting.category, setting.desc]);
-        }
-
-        console.log("System Settings table ready with defaults.");
-        /* process.exit removed */
-
-    } catch (err) {
-        console.error("Error setting up system settings:", err.message);
-        /* process.exit removed */
-    }
-}
-
-await createSystemSettingsTable();
-
-    } catch(err) {
-      console.error('[Error Details in create-system-settings.js]:', err.message);
-    }
-  })();
-  // ====== FROM: create-classes-tables.js ======
-  await (async () => {
-    try {
-
-
-const createClassesTables = async () => {
-    try {
-        // Classes Table (Already exists in some scripts, but ensuring structure)
-        await pool.query(`
-            CREATE TABLE IF NOT EXISTS classes (
-                class_id SERIAL PRIMARY KEY,
-                class_name VARCHAR(100) UNIQUE NOT NULL,
-                description TEXT,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            );
-        `);
-        console.log("Classes table checked/created.");
-
-        // Sections Table
-        await pool.query(`
-            CREATE TABLE IF NOT EXISTS sections (
-                section_id SERIAL PRIMARY KEY,
-                section_name VARCHAR(50) NOT NULL,
-                class_id INTEGER REFERENCES classes(class_id) ON DELETE CASCADE,
-                capacity INTEGER DEFAULT 30,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                UNIQUE(class_id, section_name) -- Prevent duplicate sections per class
-            );
-        `);
-        console.log("Sections table checked/created.");
-
-    } catch (err) {
-        console.error("Error creating Classes tables:", err.message);
-    } finally {
-        /* pool.end() removed for master seeder; */
-    }
-};
-
-await createClassesTables();
-
-    } catch(err) {
-      console.error('[Error Details in create-classes-tables.js]:', err.message);
-    }
-  })();
-  // ====== FROM: update-classes-table.js ======
-  await (async () => {
-    try {
-
-
-const updateClassesTable = async () => {
-    try {
-        console.log("Adding description column to classes table...");
-        await pool.query(`
-            ALTER TABLE classes 
-            ADD COLUMN IF NOT EXISTS description TEXT;
-        `);
-        console.log("Successfully added 'description' column to classes table.");
-    } catch (err) {
-        console.error("Error updating classes table:", err.message);
-    } finally {
-        /* pool.end() removed for master seeder; */
-    }
-};
-
-await updateClassesTable();
-
-    } catch(err) {
-      console.error('[Error Details in update-classes-table.js]:', err.message);
-    }
-  })();
-  // ====== FROM: create-subjects-table.js ======
-  await (async () => {
-    try {
-
-
-const createSubjectsTable = async () => {
-    try {
-        console.log("Creating/Checking Subjects Table...");
-        await pool.query(`
-            CREATE TABLE IF NOT EXISTS subjects (
-                subject_id SERIAL PRIMARY KEY,
-                subject_name VARCHAR(100) NOT NULL,
-                subject_code VARCHAR(50),
-                section_id INTEGER REFERENCES sections(section_id) ON DELETE CASCADE,
-                total_marks INTEGER DEFAULT 100,
-                passing_marks INTEGER DEFAULT 33,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                UNIQUE(section_id, subject_name) -- Prevent duplicate subject names in same section
-            );
-        `);
-        console.log("Subjects table created successfully.");
-    } catch (err) {
-        console.error("Error creating subjects table:", err.message);
-    } finally {
-        /* pool.end() removed for master seeder; */
-    }
-};
-
-await createSubjectsTable();
-
-    } catch(err) {
-      console.error('[Error Details in create-subjects-table.js]:', err.message);
-    }
-  })();
-  // ====== FROM: create-students-table.js ======
-  await (async () => {
-    try {
-
-
-const createStudentsTable = async () => {
-    try {
-        console.log("Creating/Recreating Students Table...");
-        
-        // We drop the table to ensure the new schema is applied. 
-        // WARNING: This deletes existing student data. In a production migration we would ALTER table.
-        // Since we are setting up the structure for a "standard" software, a fresh start is safer for the agent to ensure columns exist.
-        // However, I will use IF NOT EXISTS for safety, but if the user wants "new fields", the simplest way for me right now 
-        // without migration tools is to drop if it doesn't match, or just DROP to be sure. 
-        // Given the instructions "New admission... standard software fields", I'll infer a fresh structure is needed.
-        
-        await pool.query(`DROP TABLE IF EXISTS students CASCADE;`);
-
-        await pool.query(`
-            CREATE TABLE students (
-                student_id SERIAL PRIMARY KEY,
-                admission_no VARCHAR(50) UNIQUE NOT NULL,
-                roll_no VARCHAR(50),
-                
-                first_name VARCHAR(100) NOT NULL,
-                last_name VARCHAR(100),
-                gender VARCHAR(20),
-                dob DATE,
-                
-                class_id INTEGER REFERENCES classes(class_id),
-                section_id INTEGER REFERENCES sections(section_id),
-                
-                category VARCHAR(50), -- General, OBC, SC, ST, etc.
-                religion VARCHAR(50),
-                blood_group VARCHAR(10),
-                
-                mobile_no VARCHAR(20),
-                email VARCHAR(100),
-                
-                admission_date DATE DEFAULT CURRENT_DATE,
-                image_url TEXT,
-                
-                father_name VARCHAR(100),
-                father_phone VARCHAR(20),
-                mother_name VARCHAR(100),
-                
-                current_address TEXT,
-                permanent_address TEXT,
-                
-                status VARCHAR(20) DEFAULT 'Active', -- Active, Inactive, Transferred, Alumnus
-                
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            );
-        `);
-        console.log("Students table created successfully with comprehensive schema.");
-    } catch (err) {
-        console.error("Error creating students table:", err.message);
-    } finally {
-        /* pool.end() removed for master seeder; */
-    }
-};
-
-await createStudentsTable();
-
-    } catch(err) {
-      console.error('[Error Details in create-students-table.js]:', err.message);
-    }
-  })();
-  // ====== FROM: update-students-schema.js ======
-  await (async () => {
-    try {
-
-
-const updateStudentsTableComprehensive = async () => {
-    try {
-        console.log("Upgrading Students Table to Comprehensive International Standards...");
-        
-        // Dropping old table to reimplement full schema
-        await pool.query(`DROP TABLE IF EXISTS students CASCADE;`);
-
-        await pool.query(`
-            CREATE TABLE students (
-                student_id SERIAL PRIMARY KEY,
-                
-                -- System Identifiers
-                admission_no VARCHAR(50) UNIQUE NOT NULL,
-                roll_no VARCHAR(50),
-                status VARCHAR(20) DEFAULT 'Active', -- Active, Left, Alumnus, Suspended
-                
-                -- Academic Info
-                class_id INTEGER REFERENCES classes(class_id),
-                section_id INTEGER REFERENCES sections(section_id),
-                admission_date DATE DEFAULT CURRENT_DATE,
-                category VARCHAR(50) DEFAULT 'Normal', -- 'Normal', 'Trusted'
-                
-                -- Student Personal Info
-                first_name VARCHAR(100) NOT NULL,
-                last_name VARCHAR(100),
-                gender VARCHAR(20),
-                dob DATE,
-                cnic_bform VARCHAR(50), -- B-Form / CNIC number
-                religion VARCHAR(50),
-                blood_group VARCHAR(10),
-                
-                -- Disability Info
-                has_disability BOOLEAN DEFAULT FALSE,
-                disability_details TEXT, -- If yes, describe
-                
-                -- Contact Info
-                student_mobile VARCHAR(20),
-                email VARCHAR(100),
-                current_address TEXT,
-                permanent_address TEXT,
-                city VARCHAR(100),
-                
-                -- Parents Info
-                father_name VARCHAR(100),
-                father_phone VARCHAR(20),
-                father_cnic VARCHAR(50),
-                father_occupation VARCHAR(100),
-                
-                mother_name VARCHAR(100),
-                mother_phone VARCHAR(20),
-                mother_cnic VARCHAR(50),
-                mother_occupation VARCHAR(100),
-                
-                -- Guardian Info (For orphans or alternate care)
-                is_orphan BOOLEAN DEFAULT FALSE,
-                guardian_name VARCHAR(100),
-                guardian_relation VARCHAR(50), -- Uncle, Aunt, Grandparent
-                guardian_phone VARCHAR(20),
-                guardian_cnic VARCHAR(50),
-                guardian_address TEXT,
-                
-                -- Fee Structure (Initial Setup)
-                monthly_fee NUMERIC(10, 2) DEFAULT 0.00,
-                admission_fee NUMERIC(10, 2) DEFAULT 0.00,
-                other_charges NUMERIC(10, 2) DEFAULT 0.00,
-
-                image_url TEXT,
-                documents TEXT, -- JSON string of file paths
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            );
-        `);
-        
-        console.log("Students Table Updated Successfully with Comprehensive Schema.");
-    } catch (err) {
-        console.error("Error creating students table:", err.message);
-    }
-};
-
-await updateStudentsTableComprehensive();
-    } catch(err) {
-      console.error('[Error Details in update-students-schema.js]:', err.message);
-    }
-  })();
-  // ====== FROM: update-students-family-system.js ======
-  await (async () => {
-    try {
-
-
-const updateStudentsForFamilySystem = async () => {
-    const client = await pool.connect();
-    try {
-        console.log("🔄 Updating Students Table for Family ID System...");
-        
-        await client.query('BEGIN');
-
-        // Add family_id column if not exists
-        await client.query(`
-            ALTER TABLE students 
-            ADD COLUMN IF NOT EXISTS family_id VARCHAR(50),
-            ADD COLUMN IF NOT EXISTS sibling_relation VARCHAR(20) DEFAULT 'blood' CHECK (sibling_relation IN ('blood', 'cousin'));
-        `);
-
-        // Create families tracking table
-        await client.query(`
-            CREATE TABLE IF NOT EXISTS families (
-                family_id VARCHAR(50) PRIMARY KEY,
-                family_name VARCHAR(200),
-                primary_contact_name VARCHAR(100),
-                primary_contact_phone VARCHAR(20),
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                notes TEXT
-            );
-        `);
-
-        // Create sibling relationships table for explicit tracking
-        await client.query(`
-            CREATE TABLE IF NOT EXISTS student_siblings (
-                id SERIAL PRIMARY KEY,
-                student_id INTEGER REFERENCES students(student_id) ON DELETE CASCADE,
-                sibling_id INTEGER REFERENCES students(student_id) ON DELETE CASCADE,
-                relation_type VARCHAR(20) CHECK (relation_type IN ('blood', 'cousin')),
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                UNIQUE(student_id, sibling_id)
-            );
-        `);
-
-        // Create index for faster family_id lookups
-        await client.query(`
-            CREATE INDEX IF NOT EXISTS idx_students_family_id ON students(family_id);
-        `);
-
-        // Generate family_id for existing students who don't have one
-        // Format: FAM-YYYY-NNNN
-        const year = new Date().getFullYear();
-        
-        const studentsWithoutFamily = await client.query(`
-            SELECT student_id FROM students WHERE family_id IS NULL
-        `);
-
-        if (studentsWithoutFamily.rows.length > 0) {
-            console.log(`📝 Generating Family IDs for ${studentsWithoutFamily.rows.length} existing students...`);
-            
-            for (const row of studentsWithoutFamily.rows) {
-                // Find next available family number
-                const lastFamily = await client.query(`
-                    SELECT family_id FROM students 
-                    WHERE family_id LIKE $1 
-                    ORDER BY family_id DESC LIMIT 1
-                `, [`FAM-${year}-%`]);
-
-                let familyNum = 1;
-                if (lastFamily.rows.length > 0) {
-                    const lastId = lastFamily.rows[0].family_id;
-                    const match = lastId.match(/FAM-\d{4}-(\d{4})/);
-                    if (match) {
-                        familyNum = parseInt(match[1]) + 1;
-                    }
+                if (roleName !== 'Administrator') {
+                    await pool.query("DELETE FROM role_permissions WHERE role_id = $1", [rId]);
                 }
 
-                const newFamilyId = `FAM-${year}-${String(familyNum).padStart(4, '0')}`;
-                
-                await client.query(`
-                    UPDATE students SET family_id = $1, sibling_relation = 'blood' 
-                    WHERE student_id = $2
-                `, [newFamilyId, row.student_id]);
+                for (const mod of modules) {
+                    await pool.query(`
+                        INSERT INTO role_permissions (role_id, module_name, can_read, can_write, can_delete)
+                        VALUES ($1, $2, true, true, true)
+                        ON CONFLICT (role_id, module_name)
+                        DO UPDATE SET can_read=true, can_write=true, can_delete=true;
+                    `, [rId, mod]);
+                }
             }
+
+            console.log("   ✅ User & Role Management Tables set up successfully.");
+        } catch (err) {
+            console.error("   ❌ Error setting up auth tables:", err.message);
         }
+    })();
 
-        await client.query('COMMIT');
-        console.log("✅ Students table updated successfully for Family ID system!");
-        console.log("✅ Families table created!");
-        console.log("✅ Student_siblings relationship table created!");
-        
-    } catch (err) {
-        await client.query('ROLLBACK');
-        console.error("❌ Error updating students table:", err.message);
-    } finally {
-        client.release();
-        /* pool.end() removed for master seeder; */
-    }
-};
+    // =========================================================================
+    // 2. SCHOOL & SYSTEM SETTINGS TABLES
+    // =========================================================================
+    await (async () => {
+        try {
+            console.log("⚙️ Setting up School & System Settings Tables...");
 
-await updateStudentsForFamilySystem();
-
-    } catch(err) {
-      console.error('[Error Details in update-students-family-system.js]:', err.message);
-    }
-  })();
-  // ====== FROM: create-hrm-tables.js ======
-  await (async () => {
-    try {
-
-
-const createHRMTables = async () => {
-    try {
-        // Create Departments Table
-        await pool.query(`
-            CREATE TABLE IF NOT EXISTS departments (
-                department_id SERIAL PRIMARY KEY,
-                department_name VARCHAR(100) UNIQUE NOT NULL,
-                head_of_department VARCHAR(100),
-                description TEXT,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            );
-        `);
-        console.log("Departments table checked/created.");
-
-        // Create Employees Table
-        await pool.query(`
-            CREATE TABLE IF NOT EXISTS employees (
-                employee_id SERIAL PRIMARY KEY,
-                first_name VARCHAR(100) NOT NULL,
-                last_name VARCHAR(100) NOT NULL,
-                email VARCHAR(150),
-                phone VARCHAR(20),
-                cnic VARCHAR(20) UNIQUE,
-                designation VARCHAR(100),
-                department_id INTEGER REFERENCES departments(department_id) ON DELETE SET NULL,
-                joining_date DATE,
-                salary NUMERIC(15, 2),
-                address TEXT,
-                status VARCHAR(20) DEFAULT 'Active', -- Active, Resigned, Terminated
-                app_user_id INTEGER REFERENCES app_users(id) ON DELETE SET NULL, -- Link to system user
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            );
-        `);
-        console.log("Employees table checked/created.");
-
-    } catch (err) {
-        console.error("Error creating HRM tables:", err.message);
-    } finally {
-        /* pool.end() removed for master seeder; */
-    }
-};
-
-await createHRMTables();
-
-    } catch(err) {
-      console.error('[Error Details in create-hrm-tables.js]:', err.message);
-    }
-  })();
-  // ====== FROM: update-employees-table.js ======
-  await (async () => {
-    try {
-
-
-const updateEmployeeSchema = async () => {
-    try {
-        console.log("Updating Employees table schema...");
-        
-        const queries = [
-            "ALTER TABLE employees ADD COLUMN IF NOT EXISTS gender VARCHAR(20)",
-            "ALTER TABLE employees ADD COLUMN IF NOT EXISTS dob DATE",
-            "ALTER TABLE employees ADD COLUMN IF NOT EXISTS marital_status VARCHAR(20)",
-            "ALTER TABLE employees ADD COLUMN IF NOT EXISTS emergency_contact VARCHAR(50)",
-            "ALTER TABLE employees ADD COLUMN IF NOT EXISTS qualification VARCHAR(100)",
-            "ALTER TABLE employees ADD COLUMN IF NOT EXISTS experience VARCHAR(50)",
-            "ALTER TABLE employees ADD COLUMN IF NOT EXISTS father_name VARCHAR(100)",
-            "ALTER TABLE employees ADD COLUMN IF NOT EXISTS blood_group VARCHAR(10)"
-        ];
-
-        for (const query of queries) {
-            await pool.query(query);
-        }
-        
-        console.log("Employees table schema updated successfully.");
-
-    } catch (err) {
-        console.error("Error updating schema:", err.message);
-    } finally {
-        /* pool.end() removed for master seeder; */
-    }
-};
-
-await updateEmployeeSchema();
-
-    } catch(err) {
-      console.error('[Error Details in update-employees-table.js]:', err.message);
-    }
-  })();
-  // ====== FROM: enhance-employees-for-teachers.js ======
-  await (async () => {
-    try {
-
-
-const enhanceEmployeesForTeachers = async () => {
-    const client = await pool.connect();
-    try {
-        console.log("🔧 Enhancing Employees table for Teacher management...");
-        
-        await client.query('BEGIN');
-
-        // 1. Add teacher-specific columns to employees (if not exist)
-        console.log("📝 Adding teacher-specific columns...");
-        
-        await client.query(`
-            ALTER TABLE employees 
-            ADD COLUMN IF NOT EXISTS subject_specialization TEXT,
-            ADD COLUMN IF NOT EXISTS qualification TEXT,
-            ADD COLUMN IF NOT EXISTS teaching_experience TEXT;
-        `);
-
-        // 2. Create teacher-subject assignment table
-        console.log("📚 Creating teacher-subject assignment table...");
-        
-        await client.query(`
-            CREATE TABLE IF NOT EXISTS teacher_subject_assignment (
-                assignment_id SERIAL PRIMARY KEY,
-                employee_id INTEGER REFERENCES employees(employee_id) ON DELETE CASCADE,
-                subject_id INTEGER REFERENCES subjects(subject_id) ON DELETE CASCADE,
-                academic_year VARCHAR(20),
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                UNIQUE(employee_id, subject_id, academic_year)
-            );
-        `);
-
-        // 3. Create teacher-class assignment table
-        console.log("🏫 Creating teacher-class assignment table...");
-        
-        await client.query(`
-            CREATE TABLE IF NOT EXISTS teacher_class_assignment (
-                assignment_id SERIAL PRIMARY KEY,
-                employee_id INTEGER REFERENCES employees(employee_id) ON DELETE CASCADE,
-                class_id INTEGER REFERENCES classes(class_id) ON DELETE CASCADE,
-                section_id INTEGER REFERENCES sections(section_id) ON DELETE SET NULL,
-                is_class_teacher BOOLEAN DEFAULT FALSE,
-                academic_year VARCHAR(20),
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                UNIQUE(employee_id, class_id, section_id, academic_year)
-            );
-        `);
-
-        // 4. Create Teaching Staff Department (if not exists)
-        console.log("👥 Setting up Teaching Staff department...");
-        
-        const deptCheck = await client.query(
-            "SELECT department_id FROM departments WHERE department_name = 'Teaching Staff'"
-        );
-
-        let teachingDeptId;
-        if (deptCheck.rows.length === 0) {
-            const newDept = await client.query(`
-                INSERT INTO departments (department_name, description) 
-                VALUES ('Teaching Staff', 'Faculty and Teaching Personnel') 
-                RETURNING department_id
+            // 2.1 school_settings Table
+            await pool.query(`
+                CREATE TABLE IF NOT EXISTS school_settings (
+                    id SERIAL PRIMARY KEY,
+                    school_name VARCHAR(255) DEFAULT 'Smart School',
+                    address TEXT,
+                    contact_number VARCHAR(50),
+                    email VARCHAR(255),
+                    tagline VARCHAR(255),
+                    website VARCHAR(255),
+                    logo_url TEXT,
+                    facebook_link VARCHAR(255),
+                    twitter_link VARCHAR(255),
+                    instagram_link VARCHAR(255),
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+                ALTER TABLE school_settings ALTER COLUMN logo_url TYPE TEXT;
             `);
-            teachingDeptId = newDept.rows[0].department_id;
-            console.log(`✅ Created Teaching Staff department (ID: ${teachingDeptId})`);
-        } else {
-            teachingDeptId = deptCheck.rows[0].department_id;
-            console.log(`✅ Teaching Staff department already exists (ID: ${teachingDeptId})`);
-        }
 
-        // 5. Create index for faster queries
-        console.log("⚡ Creating performance indexes...");
-        
-        await client.query(`
-            CREATE INDEX IF NOT EXISTS idx_employees_designation ON employees(designation);
-            CREATE INDEX IF NOT EXISTS idx_employees_department ON employees(department_id);
-            CREATE INDEX IF NOT EXISTS idx_teacher_subject_employee ON teacher_subject_assignment(employee_id);
-            CREATE INDEX IF NOT EXISTS idx_teacher_class_employee ON teacher_class_assignment(employee_id);
-        `);
-
-        await client.query('COMMIT');
-        
-        console.log("\n✅ SUCCESS! Teacher management schema is ready.");
-        console.log("\n📋 Summary:");
-        console.log("   - Added teacher-specific columns to employees");
-        console.log("   - Created teacher-subject assignment table");
-        console.log("   - Created teacher-class assignment table");
-        console.log("   - Set up Teaching Staff department");
-        console.log("   - Added performance indexes");
-        console.log("\n💡 Next: Create teachers in HRM with designation containing 'Teacher'");
-        
-    } catch (err) {
-        await client.query('ROLLBACK');
-        console.error("❌ Error:", err.message);
-    } finally {
-        client.release();
-        /* pool.end() removed for master seeder; */
-    }
-};
-
-await enhanceEmployeesForTeachers();
-
-    } catch(err) {
-      console.error('[Error Details in enhance-employees-for-teachers.js]:', err.message);
-    }
-  })();
-  // ====== FROM: create-attendance-tables.js ======
-  await (async () => {
-    try {
-
-
-async function run() {
-    await pool.query(`
-        CREATE TABLE IF NOT EXISTS student_attendance (
-            attendance_id SERIAL PRIMARY KEY,
-            student_id INTEGER NOT NULL REFERENCES students(student_id) ON DELETE CASCADE,
-            class_id INTEGER REFERENCES classes(class_id) ON DELETE SET NULL,
-            attendance_date DATE NOT NULL,
-            status VARCHAR(20) NOT NULL CHECK (status IN ('Present','Absent','Late','Leave')),
-            remarks VARCHAR(255),
-            created_at TIMESTAMP DEFAULT NOW(),
-            UNIQUE(student_id, attendance_date)
-        )
-    `);
-    await pool.query(`
-        CREATE TABLE IF NOT EXISTS staff_attendance (
-            attendance_id SERIAL PRIMARY KEY,
-            employee_id INTEGER NOT NULL REFERENCES employees(employee_id) ON DELETE CASCADE,
-            attendance_date DATE NOT NULL,
-            status VARCHAR(20) NOT NULL CHECK (status IN ('Present','Absent','Late','Leave')),
-            check_in_time TIME,
-            check_out_time TIME,
-            remarks VARCHAR(255),
-            created_at TIMESTAMP DEFAULT NOW(),
-            UNIQUE(employee_id, attendance_date)
-        )
-    `);
-    console.log('Attendance tables created successfully');
-    /* pool.end() removed for master seeder; */
-}
-await run();
-
-    } catch(err) {
-      console.error('[Error Details in create-attendance-tables.js]:', err.message);
-    }
-  })();
-  // ====== FROM: init-expenses.js ======
-  await (async () => {
-    try {
-
-
-
-
-async function initExpenseTables() {
-    try {
-        console.log('Creating expense tables...');
-        
-        const sql = fs.readFileSync(
-            path.join(__dirname, 'create-expenses-tables.sql'),
-            'utf8'
-        );
-        
-        await pool.query(sql);
-        
-        console.log('Expense tables created successfully!');
-        /* process.exit removed */
-    } catch (err) {
-        console.error('Error creating expense tables:', err.message);
-        /* process.exit removed */
-    }
-}
-
-await initExpenseTables();
-
-    } catch(err) {
-      console.error('[Error Details in init-expenses.js]:', err.message);
-    }
-  })();
-  // ====== FROM: create-fee-tables.js ======
-  await (async () => {
-    try {
-
-
-async function createFeeTables() {
-    const client = await pool.connect();
-    try {
-        await client.query('BEGIN');
-        console.log('Creating Fee Module tables...');
-
-        // 1. Fee Heads - Master list of all charge types
-        await client.query(`
-            CREATE TABLE IF NOT EXISTS fee_heads (
-                head_id SERIAL PRIMARY KEY,
-                head_name VARCHAR(100) NOT NULL,
-                head_type VARCHAR(30) NOT NULL DEFAULT 'regular',
-                -- regular = standard monthly, extra = ad-hoc addition
-                frequency VARCHAR(20) NOT NULL DEFAULT 'monthly',
-                -- monthly, yearly, once
-                description TEXT,
-                is_active BOOLEAN DEFAULT TRUE,
-                created_at TIMESTAMP DEFAULT NOW()
-            );
-        `);
-        console.log('✅ fee_heads created');
-
-        // 2. Fee Plans - Template per class per academic year
-        await client.query(`
-            CREATE TABLE IF NOT EXISTS fee_plans (
-                plan_id SERIAL PRIMARY KEY,
-                plan_name VARCHAR(150) NOT NULL,
-                class_id INTEGER REFERENCES classes(class_id) ON DELETE SET NULL,
-                academic_year VARCHAR(20) NOT NULL DEFAULT '2026',
-                description TEXT,
-                is_active BOOLEAN DEFAULT TRUE,
-                created_at TIMESTAMP DEFAULT NOW()
-            );
-        `);
-        console.log('✅ fee_plans created');
-
-        // 3. Fee Plan Heads - Which heads belong to a plan and their amounts
-        await client.query(`
-            CREATE TABLE IF NOT EXISTS fee_plan_heads (
-                id SERIAL PRIMARY KEY,
-                plan_id INTEGER NOT NULL REFERENCES fee_plans(plan_id) ON DELETE CASCADE,
-                head_id INTEGER NOT NULL REFERENCES fee_heads(head_id) ON DELETE CASCADE,
-                amount DECIMAL(10,2) NOT NULL DEFAULT 0,
-                UNIQUE(plan_id, head_id)
-            );
-        `);
-        console.log('✅ fee_plan_heads created');
-
-        // 4. Monthly Fee Slips - One slip per student per month
-        await client.query(`
-            CREATE TABLE IF NOT EXISTS monthly_fee_slips (
-                slip_id SERIAL PRIMARY KEY,
-                student_id INTEGER NOT NULL REFERENCES students(student_id) ON DELETE CASCADE,
-                family_id VARCHAR(50),
-                class_id INTEGER REFERENCES classes(class_id) ON DELETE SET NULL,
-                month INTEGER NOT NULL CHECK (month BETWEEN 1 AND 12),
-                year INTEGER NOT NULL,
-                due_date DATE,
-                total_amount DECIMAL(10,2) NOT NULL DEFAULT 0,
-                paid_amount DECIMAL(10,2) NOT NULL DEFAULT 0,
-                status VARCHAR(20) NOT NULL DEFAULT 'unpaid',
-                -- unpaid, partial, paid
-                generated_at TIMESTAMP DEFAULT NOW(),
-                UNIQUE(student_id, month, year)
-            );
-        `);
-        console.log('✅ monthly_fee_slips created');
-
-        // 5. Slip Line Items - Individual heads on each slip
-        await client.query(`
-            CREATE TABLE IF NOT EXISTS slip_line_items (
-                item_id SERIAL PRIMARY KEY,
-                slip_id INTEGER NOT NULL REFERENCES monthly_fee_slips(slip_id) ON DELETE CASCADE,
-                head_id INTEGER REFERENCES fee_heads(head_id) ON DELETE SET NULL,
-                head_name VARCHAR(100) NOT NULL,
-                amount DECIMAL(10,2) NOT NULL DEFAULT 0,
-                paid_amount DECIMAL(10,2) NOT NULL DEFAULT 0,
-                note TEXT
-            );
-        `);
-        console.log('✅ slip_line_items created');
-
-        // 6. Fee Payments - Actual money received against a slip
-        await client.query(`
-            CREATE TABLE IF NOT EXISTS fee_payments (
-                payment_id SERIAL PRIMARY KEY,
-                slip_id INTEGER NOT NULL REFERENCES monthly_fee_slips(slip_id) ON DELETE CASCADE,
-                amount_paid DECIMAL(10,2) NOT NULL,
-                payment_date DATE NOT NULL DEFAULT CURRENT_DATE,
-                payment_method VARCHAR(30) DEFAULT 'cash',
-                -- cash, bank, online, cheque
-                received_by VARCHAR(100),
-                reference_no VARCHAR(100),
-                notes TEXT,
-                created_at TIMESTAMP DEFAULT NOW()
-            );
-        `);
-        console.log('✅ fee_payments created');
-
-        // Seed default fee heads
-        await client.query(`
-            INSERT INTO fee_heads (head_name, head_type, frequency, description)
-            VALUES 
-                ('Tuition Fee', 'regular', 'monthly', 'Monthly tuition charges'),
-                ('Transport Fee', 'regular', 'monthly', 'School bus / transport service'),
-                ('Exam Fee', 'extra', 'once', 'Examination charges per term'),
-                ('Annual Fund', 'extra', 'yearly', 'Annual school development fund'),
-                ('Sports Fee', 'regular', 'monthly', 'Sports activities & PE charges'),
-                ('Lab Charges', 'regular', 'monthly', 'Science/Computer lab usage'),
-                ('Library Fee', 'regular', 'monthly', 'Library access & maintenance'),
-                ('Late Fine', 'extra', 'once', 'Fine for late fee payment')
-            ON CONFLICT DO NOTHING;
-        `);
-        console.log('✅ Default fee heads seeded');
-
-        await client.query('COMMIT');
-        console.log('\n✅ Fee Module tables created successfully!');
-    } catch (err) {
-        await client.query('ROLLBACK');
-        console.error('❌ Error creating tables:', err.message);
-    } finally {
-        client.release();
-        /* pool.end() removed for master seeder; */
-    }
-}
-
-await createFeeTables();
-
-    } catch(err) {
-      console.error('[Error Details in create-fee-tables.js]:', err.message);
-    }
-  })();
-  // ====== FROM: add-opening-balance.js ======
-  await (async () => {
-    try {
-/**
- * Migration: Add Opening Balance (OPB) system to families
- * 
- * Adds:
- *   - families.opening_balance       — original OPB amount set by admin
- *   - families.opening_balance_paid  — total amount paid towards OPB so far
- *   - family_opb_payments table      — ledger of all OPB payment transactions
- */
-
-
-
-async function addOpeningBalance() {
-    const client = await pool.connect();
-    try {
-        await client.query('BEGIN');
-        console.log('🔄 Adding Opening Balance system...');
-
-        // 1. Add opening_balance column to families
-        await client.query(`
-            ALTER TABLE families
-            ADD COLUMN IF NOT EXISTS opening_balance DECIMAL(10,2) NOT NULL DEFAULT 0,
-            ADD COLUMN IF NOT EXISTS opening_balance_paid DECIMAL(10,2) NOT NULL DEFAULT 0,
-            ADD COLUMN IF NOT EXISTS opb_notes TEXT;
-        `);
-        console.log('✅ families.opening_balance, opening_balance_paid, opb_notes columns added');
-
-        // 2. Create OPB payments ledger table
-        await client.query(`
-            CREATE TABLE IF NOT EXISTS family_opb_payments (
-                payment_id    SERIAL PRIMARY KEY,
-                family_id     VARCHAR(50) NOT NULL REFERENCES families(family_id) ON DELETE CASCADE,
-                amount        DECIMAL(10,2) NOT NULL CHECK(amount > 0),
-                payment_date  DATE NOT NULL DEFAULT CURRENT_DATE,
-                payment_method VARCHAR(30) DEFAULT 'cash' CHECK(payment_method IN ('cash','bank','cheque','online','other')),
-                received_by   VARCHAR(100),
-                reference_no  VARCHAR(100),
-                notes         TEXT,
-                created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            );
-        `);
-        console.log('✅ family_opb_payments table created');
-
-        // 3. Index for fast family lookups
-        await client.query(`
-            CREATE INDEX IF NOT EXISTS idx_opb_payments_family
-            ON family_opb_payments(family_id);
-        `);
-        console.log('✅ Index on family_opb_payments(family_id) created');
-
-        await client.query('COMMIT');
-        console.log('');
-        console.log('✅ Opening Balance migration complete!');
-        console.log('   → families.opening_balance      : original OPB amount');
-        console.log('   → families.opening_balance_paid : total paid towards OPB');
-        console.log('   → family_opb_payments           : full payment ledger');
-    } catch (err) {
-        await client.query('ROLLBACK');
-        console.error('❌ Migration failed:', err.message);
-    } finally {
-        client.release();
-        /* pool.end() removed for master seeder; */
-    }
-}
-
-await addOpeningBalance();
-
-    } catch(err) {
-      console.error('[Error Details in add-opening-balance.js]:', err.message);
-    }
-  })();
-  // ====== FROM: add-opb-head.js ======
-  await (async () => {
-    try {
-/**
- * add-opb-head.js
- * ─────────────────────────────────────────────────────────────────────────
- * Adds 'Opening Balance' as a special fee head (head_type = 'opb') so it
- * can be linked to Fee Plans and auto-included in slip generation.
- * Also clears family_opb_payments for a fresh start (OPB now tracked via
- * fee slips / fee_payments, NOT standalone payments).
- *
- * Run once:  node add-opb-head.js
- */
-
-
-
-async function addOPBHead() {
-    const client = await pool.connect();
-    try {
-        await client.query('BEGIN');
-
-        // 1. Insert OPB fee head if it doesn't already exist
-        const result = await client.query(`
-            INSERT INTO fee_heads (head_name, head_type, frequency, description)
-            VALUES ('Opening Balance', 'opb', 'monthly',
-                    'Previous dues carried forward before software installation')
-            ON CONFLICT DO NOTHING
-            RETURNING head_id, head_name
-        `);
-
-        if (result.rows.length > 0) {
-            console.log(`✅ "Opening Balance" fee head created  (ID: ${result.rows[0].head_id})`);
-        } else {
-            // Check if it already exists
-            const existing = await client.query(
-                `SELECT head_id FROM fee_heads WHERE head_type = 'opb' LIMIT 1`
-            );
-            if (existing.rows.length > 0) {
-                console.log(`ℹ️  Opening Balance head already exists (ID: ${existing.rows[0].head_id})`);
-            } else {
-                console.log('⚠️  Duplicate head_name conflict — check fee_heads table manually');
+            const ssCheck = await pool.query("SELECT * FROM school_settings LIMIT 1");
+            if (ssCheck.rows.length === 0) {
+                await pool.query(`
+                    INSERT INTO school_settings (school_name, tagline, address, contact_number) 
+                    VALUES ('Falcon School System', 'Excellence in Education', '83/M Madina Colony Vehari', '0300-7730141')
+                `);
             }
+
+            // 2.2 system_settings Table
+            await pool.query(`
+                CREATE TABLE IF NOT EXISTS system_settings (
+                    setting_key VARCHAR(100) PRIMARY KEY,
+                    setting_value TEXT NOT NULL,
+                    category VARCHAR(50) NOT NULL,
+                    description TEXT,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+            `);
+
+            const sysDefaults = [
+                { key: 'school_name', value: 'Falcon School System', category: 'general', desc: 'Official name of the institution' },
+                { key: 'school_address', value: '83/M Madina Colony Vehari', category: 'general', desc: 'School address' },
+                { key: 'phone_number', value: '0300-7730141', category: 'general', desc: 'Primary school phone number' },
+                { key: 'school_phone2', value: '0308-7696430', category: 'general', desc: 'Secondary phone number' },
+                { key: 'school_phone3', value: '067-3366383', category: 'general', desc: 'Landline number' },
+                { key: 'school_tagline', value: 'Excellence in Education', category: 'general', desc: 'School tagline' },
+                { key: 'school_logo_url', value: '', category: 'general', desc: 'School logo URL' },
+                { key: 'contact_email', value: 'admin@shaheenschool.edu', category: 'general', desc: 'Primary contact email' },
+                { key: 'session_timeout_minutes', value: '1440', category: 'security', desc: 'User inactivity timeout in minutes' },
+                { key: 'max_login_attempts', value: '5', category: 'security', desc: 'Lock account after X failed attempts' },
+                { key: 'password_min_length', value: '6', category: 'security', desc: 'Minimum allowed password length' },
+                { key: 'auto_backup_enabled', value: 'false', category: 'backup', desc: 'Enable automatic scheduled backups' },
+                { key: 'backup_frequency', value: 'daily', category: 'backup', desc: 'Scheduled backup frequency' },
+                { key: 'backup_time', value: '08:00', category: 'backup', desc: 'Primary shift 1 time to run backup' },
+                { key: 'backup_time_1', value: '08:00', category: 'backup', desc: 'Shift 1 morning daily backup time' },
+                { key: 'backup_time_2', value: '20:00', category: 'backup', desc: 'Shift 2 evening daily backup time' },
+                { key: 'backup_path', value: '', category: 'backup', desc: 'Custom backup storage directory path' },
+                { key: 'last_backup_info', value: '', category: 'backup', desc: 'Latest database backup metadata & notification' },
+                { key: 'maintenance_mode', value: 'false', category: 'system', desc: 'Put system in read-only mode for maintenance' }
+            ];
+
+            for (const setting of sysDefaults) {
+                await pool.query(`
+                    INSERT INTO system_settings (setting_key, setting_value, category, description)
+                    VALUES ($1, $2, $3, $4)
+                    ON CONFLICT (setting_key) DO NOTHING
+                `, [setting.key, setting.value, setting.category, setting.desc]);
+            }
+
+            console.log("   ✅ School & System Settings Tables set up successfully.");
+        } catch (err) {
+            console.error("   ❌ Error setting up settings tables:", err.message);
         }
+    })();
 
-        // 2. Clear old standalone OPB payment records (fresh start — payments now via fee slips)
-        const del = await client.query('DELETE FROM family_opb_payments RETURNING payment_id');
-        console.log(`🗑️  Cleared ${del.rowCount} old OPB payment record(s) from family_opb_payments`);
+    // =========================================================================
+    // 3. ACADEMIC STRUCTURE & YEARS TABLES
+    // =========================================================================
+    await (async () => {
+        try {
+            console.log("🏫 Setting up Academic Structure Tables...");
 
-        // 3. Reset opening_balance_paid = 0 for all families (since we cleared history)
-        const reset = await client.query(
-            `UPDATE families SET opening_balance_paid = 0 WHERE opening_balance_paid != 0`
-        );
-        console.log(`🔄 Reset opening_balance_paid to 0 for ${reset.rowCount} family/families`);
+            // 3.1 classes Table
+            await pool.query(`
+                CREATE TABLE IF NOT EXISTS classes (
+                    class_id SERIAL PRIMARY KEY,
+                    class_name VARCHAR(100) UNIQUE NOT NULL,
+                    description TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+                ALTER TABLE classes ADD COLUMN IF NOT EXISTS description TEXT;
+            `);
 
-        await client.query('COMMIT');
+            // 3.2 sections Table
+            await pool.query(`
+                CREATE TABLE IF NOT EXISTS sections (
+                    section_id SERIAL PRIMARY KEY,
+                    section_name VARCHAR(50) NOT NULL,
+                    class_id INTEGER REFERENCES classes(class_id) ON DELETE CASCADE,
+                    capacity INTEGER DEFAULT 30,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(class_id, section_name)
+                );
+            `);
 
-        console.log('\n✅ OPB Head migration complete!');
-        console.log('─────────────────────────────────────────────────────────');
-        console.log('   Next steps:');
-        console.log('   1. Go to Fees → Fee Heads — you will see "Opening Balance" head');
-        console.log('   2. Open each Fee Plan → add "Opening Balance" head (set amount = 0,');
-        console.log('      system auto-uses the family\'s actual remaining OPB at generation time)');
-        console.log('   3. Generate slips — OPB will be added as a line item on any slip');
-        console.log('      for families who still have remaining opening balance');
-        console.log('   4. Collect fee normally — OPB reduces automatically as slips are paid');
-        console.log('─────────────────────────────────────────────────────────');
+            // 3.3 subjects Table
+            await pool.query(`
+                CREATE TABLE IF NOT EXISTS subjects (
+                    subject_id SERIAL PRIMARY KEY,
+                    subject_name VARCHAR(100) NOT NULL,
+                    subject_code VARCHAR(50),
+                    section_id INTEGER REFERENCES sections(section_id) ON DELETE CASCADE,
+                    total_marks INTEGER DEFAULT 100,
+                    passing_marks INTEGER DEFAULT 33,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(section_id, subject_name)
+                );
+            `);
 
-    } catch (err) {
-        await client.query('ROLLBACK');
-        console.error('❌ Migration failed:', err.message);
-    } finally {
-        client.release();
-        /* pool.end() removed for master seeder; */
-    }
-}
+            // 3.4 academic_years Table
+            await pool.query(`
+                CREATE TABLE IF NOT EXISTS academic_years (
+                    id SERIAL PRIMARY KEY,
+                    year_name VARCHAR(20) NOT NULL UNIQUE,
+                    start_date DATE,
+                    end_date DATE,
+                    is_active BOOLEAN DEFAULT FALSE,
+                    status VARCHAR(20) DEFAULT 'upcoming',
+                    is_configured BOOLEAN DEFAULT FALSE,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+                ALTER TABLE academic_years ADD COLUMN IF NOT EXISTS is_configured BOOLEAN DEFAULT FALSE;
+            `);
 
-await addOPBHead();
+            // 3.5 academic_terms Table
+            await pool.query(`
+                CREATE TABLE IF NOT EXISTS academic_terms (
+                    id SERIAL PRIMARY KEY,
+                    academic_year_id INT REFERENCES academic_years(id) ON DELETE CASCADE,
+                    term_name VARCHAR(100) NOT NULL,
+                    has_summer_work BOOLEAN DEFAULT FALSE,
+                    has_winter_work BOOLEAN DEFAULT FALSE,
+                    start_date DATE,
+                    end_date DATE
+                );
+                ALTER TABLE academic_terms ADD COLUMN IF NOT EXISTS has_summer_work BOOLEAN DEFAULT FALSE;
+                ALTER TABLE academic_terms ADD COLUMN IF NOT EXISTS has_winter_work BOOLEAN DEFAULT FALSE;
+            `);
 
-    } catch(err) {
-      console.error('[Error Details in add-opb-head.js]:', err.message);
-    }
-  })();
-  // ====== FROM: rename-opb-head.js ======
-  await (async () => {
-    try {
+            // Pre-populate 50 Academic Years (2025 - 2075)
+            const yearCheck = await pool.query("SELECT COUNT(*) FROM academic_years");
+            if (parseInt(yearCheck.rows[0].count) === 0) {
+                console.log("   → Populating 50 years of academic cycles (2025-2075)...");
+                for (let y = 2025; y <= 2075; y++) {
+                    await pool.query(
+                        "INSERT INTO academic_years (year_name, status) VALUES ($1, 'upcoming') ON CONFLICT DO NOTHING",
+                        [`${y}-${y + 1}`]
+                    );
+                }
+            }
 
-async function run() {
-    const r = await pool.query(
-        `UPDATE fee_heads SET head_name='Previous Balance', head_type='prev_balance'
-         WHERE head_type='opb' RETURNING head_id, head_name, head_type`
-    );
-    console.log('Updated rows:', r.rows);
+            console.log("   ✅ Academic Structure Tables set up successfully.");
+        } catch (err) {
+            console.error("   ❌ Error setting up academic tables:", err.message);
+        }
+    })();
 
-    // Also update any existing slip_line_items that still say 'Opening Balance'
-    const li = await pool.query(
-        `UPDATE slip_line_items SET head_name='Previous Balance'
-         WHERE head_name='Opening Balance' RETURNING item_id`
-    );
-    console.log('Line items renamed:', li.rowCount);
+    // =========================================================================
+    // 4. STUDENTS, FAMILIES & ACADEMIC RECORDS TABLES
+    // =========================================================================
+    await (async () => {
+        try {
+            console.log("👨‍🎓 Setting up Students, Families & Academic Records Tables...");
 
-    /* pool.end() removed for master seeder; */
-}
-await run();
+            // 4.1 students Table
+            await pool.query(`
+                CREATE TABLE IF NOT EXISTS students (
+                    student_id SERIAL PRIMARY KEY,
+                    admission_no VARCHAR(50) UNIQUE NOT NULL,
+                    roll_no VARCHAR(50),
+                    first_name VARCHAR(100) NOT NULL,
+                    last_name VARCHAR(100),
+                    gender VARCHAR(20),
+                    dob DATE,
+                    class_id INTEGER REFERENCES classes(class_id),
+                    section_id INTEGER REFERENCES sections(section_id),
+                    category VARCHAR(50) DEFAULT 'Normal',
+                    religion VARCHAR(50),
+                    blood_group VARCHAR(10),
+                    mobile_no VARCHAR(20),
+                    student_mobile VARCHAR(20),
+                    email VARCHAR(100),
+                    admission_date DATE DEFAULT CURRENT_DATE,
+                    image_url TEXT,
+                    father_name VARCHAR(100),
+                    father_phone VARCHAR(20),
+                    father_cnic VARCHAR(50),
+                    father_occupation VARCHAR(100),
+                    mother_name VARCHAR(100),
+                    mother_phone VARCHAR(20),
+                    mother_cnic VARCHAR(50),
+                    mother_occupation VARCHAR(100),
+                    current_address TEXT,
+                    permanent_address TEXT,
+                    city VARCHAR(100),
+                    cnic_bform VARCHAR(50),
+                    has_disability BOOLEAN DEFAULT FALSE,
+                    disability_details TEXT,
+                    is_orphan BOOLEAN DEFAULT FALSE,
+                    guardian_name VARCHAR(100),
+                    guardian_relation VARCHAR(50),
+                    guardian_phone VARCHAR(20),
+                    guardian_cnic VARCHAR(50),
+                    guardian_address TEXT,
+                    monthly_fee NUMERIC(10, 2) DEFAULT 0.00,
+                    admission_fee NUMERIC(10, 2) DEFAULT 0.00,
+                    other_charges NUMERIC(10, 2) DEFAULT 0.00,
+                    documents TEXT,
+                    status VARCHAR(20) DEFAULT 'Active',
+                    family_id VARCHAR(50),
+                    sibling_relation VARCHAR(20) DEFAULT 'blood',
+                    user_id INT REFERENCES app_users(id) ON DELETE SET NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+            `);
 
-    } catch(err) {
-      console.error('[Error Details in rename-opb-head.js]:', err.message);
-    }
-  })();
-  // ====== FROM: create-admission-fee-table.js ======
-  await (async () => {
-    try {
+            // Apply all student column alterations safely
+            const studentAlters = [
+                "ALTER TABLE students ADD COLUMN IF NOT EXISTS roll_no VARCHAR(50)",
+                "ALTER TABLE students ADD COLUMN IF NOT EXISTS status VARCHAR(20) DEFAULT 'Active'",
+                "ALTER TABLE students ADD COLUMN IF NOT EXISTS category VARCHAR(50) DEFAULT 'Normal'",
+                "ALTER TABLE students ADD COLUMN IF NOT EXISTS admission_date DATE DEFAULT CURRENT_DATE",
+                "ALTER TABLE students ADD COLUMN IF NOT EXISTS cnic_bform VARCHAR(50)",
+                "ALTER TABLE students ADD COLUMN IF NOT EXISTS religion VARCHAR(50)",
+                "ALTER TABLE students ADD COLUMN IF NOT EXISTS blood_group VARCHAR(10)",
+                "ALTER TABLE students ADD COLUMN IF NOT EXISTS gender VARCHAR(20)",
+                "ALTER TABLE students ADD COLUMN IF NOT EXISTS dob DATE",
+                "ALTER TABLE students ADD COLUMN IF NOT EXISTS has_disability BOOLEAN DEFAULT FALSE",
+                "ALTER TABLE students ADD COLUMN IF NOT EXISTS disability_details TEXT",
+                "ALTER TABLE students ADD COLUMN IF NOT EXISTS student_mobile VARCHAR(20)",
+                "ALTER TABLE students ADD COLUMN IF NOT EXISTS email VARCHAR(100)",
+                "ALTER TABLE students ADD COLUMN IF NOT EXISTS current_address TEXT",
+                "ALTER TABLE students ADD COLUMN IF NOT EXISTS permanent_address TEXT",
+                "ALTER TABLE students ADD COLUMN IF NOT EXISTS city VARCHAR(100)",
+                "ALTER TABLE students ADD COLUMN IF NOT EXISTS father_name VARCHAR(100)",
+                "ALTER TABLE students ADD COLUMN IF NOT EXISTS father_phone VARCHAR(20)",
+                "ALTER TABLE students ADD COLUMN IF NOT EXISTS father_cnic VARCHAR(50)",
+                "ALTER TABLE students ADD COLUMN IF NOT EXISTS father_occupation VARCHAR(100)",
+                "ALTER TABLE students ADD COLUMN IF NOT EXISTS mother_name VARCHAR(100)",
+                "ALTER TABLE students ADD COLUMN IF NOT EXISTS mother_phone VARCHAR(20)",
+                "ALTER TABLE students ADD COLUMN IF NOT EXISTS mother_cnic VARCHAR(50)",
+                "ALTER TABLE students ADD COLUMN IF NOT EXISTS mother_occupation VARCHAR(100)",
+                "ALTER TABLE students ADD COLUMN IF NOT EXISTS is_orphan BOOLEAN DEFAULT FALSE",
+                "ALTER TABLE students ADD COLUMN IF NOT EXISTS guardian_name VARCHAR(100)",
+                "ALTER TABLE students ADD COLUMN IF NOT EXISTS guardian_relation VARCHAR(50)",
+                "ALTER TABLE students ADD COLUMN IF NOT EXISTS guardian_phone VARCHAR(20)",
+                "ALTER TABLE students ADD COLUMN IF NOT EXISTS guardian_cnic VARCHAR(50)",
+                "ALTER TABLE students ADD COLUMN IF NOT EXISTS guardian_address TEXT",
+                "ALTER TABLE students ADD COLUMN IF NOT EXISTS monthly_fee NUMERIC(10, 2) DEFAULT 0.00",
+                "ALTER TABLE students ADD COLUMN IF NOT EXISTS admission_fee NUMERIC(10, 2) DEFAULT 0.00",
+                "ALTER TABLE students ADD COLUMN IF NOT EXISTS other_charges NUMERIC(10, 2) DEFAULT 0.00",
+                "ALTER TABLE students ADD COLUMN IF NOT EXISTS image_url TEXT",
+                "ALTER TABLE students ADD COLUMN IF NOT EXISTS documents TEXT",
+                "ALTER TABLE students ADD COLUMN IF NOT EXISTS family_id VARCHAR(50)",
+                "ALTER TABLE students ADD COLUMN IF NOT EXISTS sibling_relation VARCHAR(20) DEFAULT 'blood'",
+                "ALTER TABLE students ADD COLUMN IF NOT EXISTS user_id INT REFERENCES app_users(id) ON DELETE SET NULL"
+            ];
+            for (const q of studentAlters) {
+                await pool.query(q);
+            }
 
+            // 4.2 families Table
+            await pool.query(`
+                CREATE TABLE IF NOT EXISTS families (
+                    family_id VARCHAR(50) PRIMARY KEY,
+                    family_name VARCHAR(200),
+                    primary_contact_name VARCHAR(100),
+                    primary_contact_phone VARCHAR(20),
+                    family_fee NUMERIC(10,2) DEFAULT 0,
+                    opening_balance NUMERIC(10,2) DEFAULT 0,
+                    opening_balance_paid NUMERIC(10,2) DEFAULT 0,
+                    opb_notes TEXT,
+                    notes TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+                ALTER TABLE families ADD COLUMN IF NOT EXISTS family_fee NUMERIC(10,2) DEFAULT 0;
+                ALTER TABLE families ADD COLUMN IF NOT EXISTS opening_balance NUMERIC(10,2) DEFAULT 0;
+                ALTER TABLE families ADD COLUMN IF NOT EXISTS opening_balance_paid NUMERIC(10,2) DEFAULT 0;
+                ALTER TABLE families ADD COLUMN IF NOT EXISTS opb_notes TEXT;
+            `);
 
-async function createAdmissionFeeTables() {
-    const client = await pool.connect();
-    try {
-        await client.query('BEGIN');
-        console.log('Creating Admission Fee tables...');
+            // 4.3 student_siblings Table
+            await pool.query(`
+                CREATE TABLE IF NOT EXISTS student_siblings (
+                    id SERIAL PRIMARY KEY,
+                    student_id INTEGER REFERENCES students(student_id) ON DELETE CASCADE,
+                    sibling_id INTEGER REFERENCES students(student_id) ON DELETE CASCADE,
+                    relation_type VARCHAR(20) CHECK (relation_type IN ('blood', 'cousin')),
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(student_id, sibling_id)
+                );
+            `);
 
-        // 1. Admission Fee Ledger — one row per student, tracks lifetime admission fee outstanding
-        await client.query(`
-            CREATE TABLE IF NOT EXISTS admission_fee_ledger (
-                ledger_id   SERIAL PRIMARY KEY,
-                student_id  INTEGER NOT NULL REFERENCES students(student_id) ON DELETE CASCADE,
-                total_amount   DECIMAL(10,2) NOT NULL DEFAULT 0,
-                paid_amount    DECIMAL(10,2) NOT NULL DEFAULT 0,
-                status         VARCHAR(20)   NOT NULL DEFAULT 'unpaid',
-                -- unpaid | partial | paid
-                admission_date DATE,
-                notes       TEXT,
-                created_at  TIMESTAMP DEFAULT NOW(),
-                UNIQUE(student_id)   -- Each student has exactly one ledger entry
-            );
-        `);
-        console.log('✅ admission_fee_ledger created');
+            // 4.4 student_academic_records Table
+            await pool.query(`
+                CREATE TABLE IF NOT EXISTS student_academic_records (
+                    id SERIAL PRIMARY KEY,
+                    student_id INTEGER NOT NULL REFERENCES students(student_id) ON DELETE CASCADE,
+                    academic_year_id INTEGER NOT NULL REFERENCES academic_years(id) ON DELETE CASCADE,
+                    class_id INTEGER NOT NULL REFERENCES classes(class_id) ON DELETE CASCADE,
+                    section_id INTEGER NOT NULL REFERENCES sections(section_id) ON DELETE CASCADE,
+                    roll_no VARCHAR(50),
+                    total_marks NUMERIC(10,2) DEFAULT 0,
+                    obtained_marks NUMERIC(10,2) DEFAULT 0,
+                    percentage NUMERIC(5,2) DEFAULT 0,
+                    grade VARCHAR(10),
+                    rank_in_class INTEGER,
+                    status VARCHAR(20) DEFAULT 'active',
+                    promotion_target_year_id INTEGER REFERENCES academic_years(id) ON DELETE SET NULL,
+                    promotion_target_class_id INTEGER REFERENCES classes(class_id) ON DELETE SET NULL,
+                    promoted_to_year_id INTEGER REFERENCES academic_years(id) ON DELETE SET NULL,
+                    promoted_to_class_id INTEGER REFERENCES classes(class_id) ON DELETE SET NULL,
+                    promoted_on DATE,
+                    promoted_at TIMESTAMP,
+                    promoted_by_user_id INTEGER REFERENCES app_users(id) ON DELETE SET NULL,
+                    attendance_percentage NUMERIC(5,2),
+                    remarks TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(student_id, academic_year_id)
+                );
+                ALTER TABLE student_academic_records ADD COLUMN IF NOT EXISTS promotion_target_year_id INTEGER REFERENCES academic_years(id) ON DELETE SET NULL;
+                ALTER TABLE student_academic_records ADD COLUMN IF NOT EXISTS promotion_target_class_id INTEGER REFERENCES classes(class_id) ON DELETE SET NULL;
+                ALTER TABLE student_academic_records ADD COLUMN IF NOT EXISTS promoted_at TIMESTAMP;
+                ALTER TABLE student_academic_records ADD COLUMN IF NOT EXISTS promoted_by_user_id INTEGER REFERENCES app_users(id) ON DELETE SET NULL;
+            `);
 
-        // 2. Admission Fee Payments — payment history against a ledger entry
-        await client.query(`
-            CREATE TABLE IF NOT EXISTS admission_fee_payments (
-                payment_id     SERIAL PRIMARY KEY,
-                ledger_id      INTEGER NOT NULL REFERENCES admission_fee_ledger(ledger_id) ON DELETE CASCADE,
-                amount_paid    DECIMAL(10,2) NOT NULL,
-                payment_date   DATE NOT NULL DEFAULT CURRENT_DATE,
-                payment_method VARCHAR(30) DEFAULT 'cash',
-                -- cash | bank | online | cheque
-                received_by    VARCHAR(100),
-                reference_no   VARCHAR(100),
-                notes          TEXT,
-                created_at     TIMESTAMP DEFAULT NOW()
-            );
-        `);
-        console.log('✅ admission_fee_payments created');
+            // Create Performance Indexes
+            await pool.query(`
+                CREATE INDEX IF NOT EXISTS idx_students_family_id ON students(family_id);
+                CREATE INDEX IF NOT EXISTS idx_sar_student ON student_academic_records(student_id);
+                CREATE INDEX IF NOT EXISTS idx_sar_year_class ON student_academic_records(academic_year_id, class_id, section_id);
+                CREATE INDEX IF NOT EXISTS idx_sar_status ON student_academic_records(status);
+            `);
 
-        // 3. Backfill existing students who already have admission_fee > 0
-        //    (Only runs if there are students already in DB)
-        const backfill = await client.query(`
-            INSERT INTO admission_fee_ledger (student_id, total_amount, paid_amount, status, admission_date)
-            SELECT 
-                student_id,
-                COALESCE(admission_fee, 0)  AS total_amount,
-                0                           AS paid_amount,
-                CASE WHEN COALESCE(admission_fee, 0) = 0 THEN 'paid' ELSE 'unpaid' END AS status,
-                admission_date
-            FROM students
-            WHERE COALESCE(admission_fee, 0) > 0
-            ON CONFLICT (student_id) DO NOTHING
-        `);
-        console.log(`✅ Backfilled ${backfill.rowCount} existing students into admission_fee_ledger`);
+            // Automatic updated_at trigger for student_academic_records
+            await pool.query(`
+                CREATE OR REPLACE FUNCTION update_sar_timestamp()
+                RETURNS TRIGGER AS $$
+                BEGIN
+                    NEW.updated_at = CURRENT_TIMESTAMP;
+                    RETURN NEW;
+                END;
+                $$ LANGUAGE plpgsql;
 
-        await client.query('COMMIT');
-        console.log('\n🎉 All admission fee tables created successfully!');
-        console.log('');
-        console.log('Tables created:');
-        console.log('  • admission_fee_ledger        — outstanding balance per student');
-        console.log('  • admission_fee_payments      — payment history per ledger entry');
-    } catch (err) {
-        await client.query('ROLLBACK');
-        console.error('❌ Error:', err.message);
-        /* process.exit removed */
-    } finally {
-        client.release();
-        /* process.exit removed */
-    }
-}
+                DROP TRIGGER IF EXISTS sar_update_timestamp ON student_academic_records;
+                CREATE TRIGGER sar_update_timestamp
+                BEFORE UPDATE ON student_academic_records
+                FOR EACH ROW
+                EXECUTE FUNCTION update_sar_timestamp();
+            `);
 
-await createAdmissionFeeTables();
+            console.log("   ✅ Students, Families & Academic Records Tables set up successfully.");
+        } catch (err) {
+            console.error("   ❌ Error setting up student tables:", err.message);
+        }
+    })();
 
-    } catch(err) {
-      console.error('[Error Details in create-admission-fee-table.js]:', err.message);
-    }
-  })();
-  // ====== FROM: add-discount-columns.js ======
-  await (async () => {
-    try {
+    // =========================================================================
+    // 5. HRM & EMPLOYEE MANAGEMENT TABLES
+    // =========================================================================
+    await (async () => {
+        try {
+            console.log("👔 Setting up HRM & Employee Management Tables...");
 
-async function run() {
-    try {
-        await pool.query('ALTER TABLE admission_fee_ledger ADD COLUMN IF NOT EXISTS discount DECIMAL(10,2) DEFAULT 0');
-        await pool.query('ALTER TABLE admission_fee_payments ADD COLUMN IF NOT EXISTS discount_amount DECIMAL(10,2) DEFAULT 0');
-        console.log('Columns added successfully');
-    } catch(e) {
-        console.error('Error adding columns:', e);
-    } finally {
-        /* pool.end() removed for master seeder; */
-    }
-}
-await run();
+            // 5.1 departments Table
+            await pool.query(`
+                CREATE TABLE IF NOT EXISTS departments (
+                    department_id SERIAL PRIMARY KEY,
+                    department_name VARCHAR(100) UNIQUE NOT NULL,
+                    head_of_department VARCHAR(100),
+                    description TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+            `);
 
-    } catch(err) {
-      console.error('[Error Details in add-discount-columns.js]:', err.message);
-    }
-  })();
-  // ====== FROM: add_admission_discounts.js ======
-  await (async () => {
-    try {
+            // Seed Teaching Staff Department
+            await pool.query(`
+                INSERT INTO departments (department_name, description) 
+                VALUES ('Teaching Staff', 'Faculty and Teaching Personnel')
+                ON CONFLICT (department_name) DO NOTHING;
+            `);
 
-async function run() {
-    try {
-        await pool.query('ALTER TABLE admission_fee_ledger ADD COLUMN IF NOT EXISTS discount DECIMAL(10,2) DEFAULT 0');
-        await pool.query('ALTER TABLE admission_fee_payments ADD COLUMN IF NOT EXISTS discount_amount DECIMAL(10,2) DEFAULT 0');
-        console.log('Columns added successfully');
-    } catch(e) {
-        console.error('Error adding columns:', e);
-    } finally {
-        /* pool.end() removed for master seeder; */
-    }
-}
-await run();
-    } catch(err) {
-      console.error('[Error Details in add_admission_discounts.js]:', err.message);
-    }
-  })();
-  // ====== FROM: add_paid_amount_to_line_items.js ======
-  await (async () => {
-    try {
- async function run() { try { await pool.query('ALTER TABLE slip_line_items ADD COLUMN IF NOT EXISTS paid_amount DECIMAL(10,2) DEFAULT 0'); console.log('success'); } catch(e) { console.error(e); } finally { /* pool.end() removed for master seeder; */ } } run();
+            // 5.2 employees Table
+            await pool.query(`
+                CREATE TABLE IF NOT EXISTS employees (
+                    employee_id SERIAL PRIMARY KEY,
+                    first_name VARCHAR(100) NOT NULL,
+                    last_name VARCHAR(100) NOT NULL,
+                    email VARCHAR(150),
+                    phone VARCHAR(20),
+                    cnic VARCHAR(20) UNIQUE,
+                    designation VARCHAR(100),
+                    department_id INTEGER REFERENCES departments(department_id) ON DELETE SET NULL,
+                    joining_date DATE,
+                    salary NUMERIC(15, 2),
+                    address TEXT,
+                    gender VARCHAR(20),
+                    dob DATE,
+                    marital_status VARCHAR(20),
+                    emergency_contact VARCHAR(50),
+                    qualification VARCHAR(100),
+                    experience VARCHAR(50),
+                    father_name VARCHAR(100),
+                    blood_group VARCHAR(10),
+                    subject_specialization TEXT,
+                    teaching_experience TEXT,
+                    status VARCHAR(20) DEFAULT 'Active',
+                    app_user_id INTEGER REFERENCES app_users(id) ON DELETE SET NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+            `);
 
-    } catch(err) {
-      console.error('[Error Details in add_paid_amount_to_line_items.js]:', err.message);
-    }
-  })();
-  // ====== FROM: create-exam-fee-collection-table.js ======
-  await (async () => {
-    try {
+            const empAlters = [
+                "ALTER TABLE employees ADD COLUMN IF NOT EXISTS gender VARCHAR(20)",
+                "ALTER TABLE employees ADD COLUMN IF NOT EXISTS dob DATE",
+                "ALTER TABLE employees ADD COLUMN IF NOT EXISTS marital_status VARCHAR(20)",
+                "ALTER TABLE employees ADD COLUMN IF NOT EXISTS emergency_contact VARCHAR(50)",
+                "ALTER TABLE employees ADD COLUMN IF NOT EXISTS qualification VARCHAR(100)",
+                "ALTER TABLE employees ADD COLUMN IF NOT EXISTS experience VARCHAR(50)",
+                "ALTER TABLE employees ADD COLUMN IF NOT EXISTS father_name VARCHAR(100)",
+                "ALTER TABLE employees ADD COLUMN IF NOT EXISTS blood_group VARCHAR(10)",
+                "ALTER TABLE employees ADD COLUMN IF NOT EXISTS subject_specialization TEXT",
+                "ALTER TABLE employees ADD COLUMN IF NOT EXISTS teaching_experience TEXT"
+            ];
+            for (const q of empAlters) {
+                await pool.query(q);
+            }
 
+            // 5.3 teacher_subject_assignment Table
+            await pool.query(`
+                CREATE TABLE IF NOT EXISTS teacher_subject_assignment (
+                    assignment_id SERIAL PRIMARY KEY,
+                    employee_id INTEGER REFERENCES employees(employee_id) ON DELETE CASCADE,
+                    subject_id INTEGER REFERENCES subjects(subject_id) ON DELETE CASCADE,
+                    academic_year VARCHAR(20),
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(employee_id, subject_id, academic_year)
+                );
+            `);
 
-async function createExamFeeCollectionTable() {
-    try {
-        console.log("Creating exam_fee_collections table...");
-        
-        await pool.query(`
-            CREATE TABLE IF NOT EXISTS exam_fee_collections (
-                id SERIAL PRIMARY KEY,
-                collection_name VARCHAR(100) NOT NULL,
-                student_id INTEGER NOT NULL REFERENCES students(student_id) ON DELETE CASCADE,
-                class_id INTEGER NOT NULL REFERENCES classes(class_id) ON DELETE CASCADE,
-                section_id INTEGER NOT NULL REFERENCES sections(section_id) ON DELETE CASCADE,
-                amount NUMERIC(10,2) NOT NULL DEFAULT 0 CHECK (amount >= 0),
-                remarks TEXT,
-                collected_by INTEGER REFERENCES app_users(id) ON DELETE SET NULL,
-                collection_date DATE DEFAULT CURRENT_DATE,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                UNIQUE(collection_name, student_id)
-            );
-        `);
-        
-        console.log("✅ exam_fee_collections table created successfully.");
-        /* process.exit removed */
-    } catch (err) {
-        console.error("❌ Error creating table:", err.message);
-        /* process.exit removed */
-    }
-}
+            // 5.4 teacher_class_assignment Table
+            await pool.query(`
+                CREATE TABLE IF NOT EXISTS teacher_class_assignment (
+                    assignment_id SERIAL PRIMARY KEY,
+                    employee_id INTEGER REFERENCES employees(employee_id) ON DELETE CASCADE,
+                    class_id INTEGER REFERENCES classes(class_id) ON DELETE CASCADE,
+                    section_id INTEGER REFERENCES sections(section_id) ON DELETE SET NULL,
+                    is_class_teacher BOOLEAN DEFAULT FALSE,
+                    academic_year VARCHAR(20),
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(employee_id, class_id, section_id, academic_year)
+                );
+            `);
 
-await createExamFeeCollectionTable();
+            // Indexes
+            await pool.query(`
+                CREATE INDEX IF NOT EXISTS idx_employees_designation ON employees(designation);
+                CREATE INDEX IF NOT EXISTS idx_employees_department ON employees(department_id);
+                CREATE INDEX IF NOT EXISTS idx_teacher_subject_employee ON teacher_subject_assignment(employee_id);
+                CREATE INDEX IF NOT EXISTS idx_teacher_class_employee ON teacher_class_assignment(employee_id);
+            `);
 
-    } catch(err) {
-      console.error('[Error Details in create-exam-fee-collection-table.js]:', err.message);
-    }
-  })();
-  // ====== FROM: update-multi-months.js ======
-  await (async () => {
-    try {
+            console.log("   ✅ HRM & Employee Management Tables set up successfully.");
+        } catch (err) {
+            console.error("   ❌ Error setting up HRM tables:", err.message);
+        }
+    })();
 
+    // =========================================================================
+    // 6. ATTENDANCE MODULE TABLES
+    // =========================================================================
+    await (async () => {
+        try {
+            console.log("📅 Setting up Attendance Module Tables...");
 
-async function run() {
-    try {
-        console.log('Adding multi-month columns to monthly_fee_slips...');
-        await pool.query('ALTER TABLE monthly_fee_slips ADD COLUMN IF NOT EXISTS has_multi_months boolean DEFAULT false;');
-        await pool.query('ALTER TABLE monthly_fee_slips ADD COLUMN IF NOT EXISTS months_list integer[];');
-        console.log('Columns added successfully.');
-    } catch(e) {
-        console.error('Error adding columns:', e.message);
-    } finally {
-        /* process.exit removed */
-    }
-}
+            // 6.1 student_attendance Table
+            await pool.query(`
+                CREATE TABLE IF NOT EXISTS student_attendance (
+                    attendance_id SERIAL PRIMARY KEY,
+                    student_id INTEGER NOT NULL REFERENCES students(student_id) ON DELETE CASCADE,
+                    class_id INTEGER REFERENCES classes(class_id) ON DELETE SET NULL,
+                    attendance_date DATE NOT NULL,
+                    status VARCHAR(20) NOT NULL CHECK (status IN ('Present','Absent','Late','Leave')),
+                    remarks VARCHAR(255),
+                    created_at TIMESTAMP DEFAULT NOW(),
+                    UNIQUE(student_id, attendance_date)
+                );
+            `);
 
-await run();
+            // 6.2 staff_attendance Table
+            await pool.query(`
+                CREATE TABLE IF NOT EXISTS staff_attendance (
+                    attendance_id SERIAL PRIMARY KEY,
+                    employee_id INTEGER NOT NULL REFERENCES employees(employee_id) ON DELETE CASCADE,
+                    attendance_date DATE NOT NULL,
+                    status VARCHAR(20) NOT NULL CHECK (status IN ('Present','Absent','Late','Leave')),
+                    check_in_time TIME,
+                    check_out_time TIME,
+                    remarks VARCHAR(255),
+                    created_at TIMESTAMP DEFAULT NOW(),
+                    UNIQUE(employee_id, attendance_date)
+                );
+            `);
 
-    } catch(err) {
-      console.error('[Error Details in update-multi-months.js]:', err.message);
-    }
-  })();
-  // ====== FROM: add-family-fee-column.js ======
-  await (async () => {
-    try {
+            console.log("   ✅ Attendance Module Tables set up successfully.");
+        } catch (err) {
+            console.error("   ❌ Error setting up attendance tables:", err.message);
+        }
+    })();
 
+    // =========================================================================
+    // 7. EXPENSES MODULE TABLES
+    // =========================================================================
+    await (async () => {
+        try {
+            console.log("💸 Setting up Expenses Module Tables...");
 
-async function addFamilyFeeColumn() {
-    const client = await pool.connect();
-    try {
-        await client.query('BEGIN');
-        console.log('🔄 Upgrading families table with family_fee...');
+            // 7.1 expense_categories Table
+            await pool.query(`
+                CREATE TABLE IF NOT EXISTS expense_categories (
+                    category_id SERIAL PRIMARY KEY,
+                    category_name VARCHAR(100) UNIQUE NOT NULL,
+                    description TEXT,
+                    is_active BOOLEAN DEFAULT TRUE,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+                ALTER TABLE expense_categories ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
+            `);
 
-        // 1. Add family_fee to families table
-        await client.query(`
-            ALTER TABLE families
-            ADD COLUMN IF NOT EXISTS family_fee DECIMAL(10,2) NOT NULL DEFAULT 0;
-        `);
-        console.log('✅ families.family_fee column added');
+            // Seed default expense categories
+            const defaultExpenseCategories = [
+                ['Utilities', 'Electricity, Water, Gas, Internet bills'],
+                ['Salaries & Wages', 'Staff salaries and daily wages'],
+                ['Office Supplies', 'Paper, pens, printing material, stationery'],
+                ['Maintenance & Repair', 'Building maintenance, plumbing, electrical repairs'],
+                ['Events & Functions', 'School functions, sports day, annual day'],
+                ['Transport', 'Fuel, vehicle maintenance, bus repairs'],
+                ['Miscellaneous', 'Other unexpected small expenses']
+            ];
 
-        // 2. Seed family_fee from highest monthly_fee of members (for existing data)
-        await client.query(`
-            UPDATE families f
-            SET family_fee = COALESCE((
-                SELECT MAX(s.monthly_fee)
-                FROM students s
-                WHERE s.family_id = f.family_id
-                  AND s.monthly_fee > 0
-            ), 0)
-            WHERE family_fee = 0;
-        `);
-        console.log('✅ Seeded existing family_fee from student monthly_fee values');
-
-        // 3. Add is_family_slip column to monthly_fee_slips for clarity
-        await client.query(`
-            ALTER TABLE monthly_fee_slips
-            ADD COLUMN IF NOT EXISTS is_family_slip BOOLEAN NOT NULL DEFAULT FALSE;
-        `);
-        console.log('✅ monthly_fee_slips.is_family_slip column added');
-
-        await client.query('COMMIT');
-        console.log('');
-        console.log('✅ Family fee migration complete!');
-        console.log('   → families.family_fee: fee for entire family unit');
-        console.log('   → monthly_fee_slips.is_family_slip: marks multi-member family slips');
-    } catch (err) {
-        await client.query('ROLLBACK');
-        console.error('❌ Migration failed:', err.message);
-    } finally {
-        client.release();
-        /* pool.end() removed for master seeder; */
-    }
-}
-
-await addFamilyFeeColumn();
-
-    } catch(err) {
-      console.error('[Error Details in add-family-fee-column.js]:', err.message);
-    }
-  })();
-  // ====== FROM: create-academic-table.js ======
-  await (async () => {
-    try {
-
-
-async function createAcademicTables() {
-    try {
-        console.log("Creating Academic Tables...");
-
-        // 1. Create Academic Years Table
-        await pool.query(`
-            CREATE TABLE IF NOT EXISTS academic_years (
-                id SERIAL PRIMARY KEY,
-                year_name VARCHAR(20) NOT NULL UNIQUE,
-                start_date DATE,
-                end_date DATE,
-                is_active BOOLEAN DEFAULT FALSE,
-                status VARCHAR(20) DEFAULT 'upcoming' -- upcoming, active, completed
-            );
-        `);
-
-        // 2. Create Academic Terms Table
-        await pool.query(`
-            CREATE TABLE IF NOT EXISTS academic_terms (
-                id SERIAL PRIMARY KEY,
-                academic_year_id INT REFERENCES academic_years(id) ON DELETE CASCADE,
-                term_name VARCHAR(100) NOT NULL,
-                start_date DATE,
-                end_date DATE
-            );
-        `);
-
-        // 3. Pre-populate 50 Years (2025 - 2075)
-        const check = await pool.query("SELECT COUNT(*) FROM academic_years");
-        if (parseInt(check.rows[0].count) === 0) {
-            console.log("Populating 50 years of academic cycles...");
-            
-            const startYear = 2025;
-            const endYear = 2075;
-            let values = [];
-            
-            for (let y = startYear; y <= endYear; y++) {
-                // Assuming a typical cycle like "2025-2026"
-                const yearName = `${y}-${y + 1}`;
-                // We'll leave dates null for user to configure later, or set defaults
-                // Let's just insert the names for now
+            for (const [catName, catDesc] of defaultExpenseCategories) {
                 await pool.query(
-                    "INSERT INTO academic_years (year_name, status) VALUES ($1, 'upcoming')", 
-                    [yearName]
+                    `INSERT INTO expense_categories (category_name, description) VALUES ($1, $2) ON CONFLICT (category_name) DO NOTHING`,
+                    [catName, catDesc]
                 );
             }
-            console.log("Inserted years from 2025-2026 to 2075-2076.");
-        } else {
-            console.log("Academic years already exist. Skipping population.");
+
+            // 7.2 expenses Table
+            await pool.query(`
+                CREATE TABLE IF NOT EXISTS expenses (
+                    expense_id SERIAL PRIMARY KEY,
+                    category_id INTEGER REFERENCES expense_categories(category_id) ON DELETE SET NULL,
+                    expense_title VARCHAR(200) NOT NULL,
+                    amount NUMERIC(12, 2) NOT NULL CHECK (amount >= 0),
+                    expense_date DATE DEFAULT CURRENT_DATE,
+                    payment_method VARCHAR(50) DEFAULT 'Cash',
+                    reference_no VARCHAR(100),
+                    paid_to VARCHAR(150),
+                    status VARCHAR(20) DEFAULT 'Approved',
+                    description TEXT,
+                    attachment VARCHAR(255),
+                    receipt_url TEXT,
+                    created_by INTEGER REFERENCES app_users(id) ON DELETE SET NULL,
+                    approved_by INTEGER REFERENCES app_users(id) ON DELETE SET NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+                ALTER TABLE expenses 
+                    ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    ADD COLUMN IF NOT EXISTS attachment VARCHAR(255),
+                    ADD COLUMN IF NOT EXISTS approved_by INTEGER REFERENCES app_users(id) ON DELETE SET NULL,
+                    ADD COLUMN IF NOT EXISTS receipt_url TEXT;
+
+                CREATE INDEX IF NOT EXISTS idx_expenses_date ON expenses(expense_date);
+            `);
+
+            console.log("   ✅ Expenses Module Tables set up successfully.");
+        } catch (err) {
+            console.error("   ❌ Error setting up expense tables:", err.message);
         }
+    })();
 
-        console.log("Academic Setup Tables created successfully!");
-        /* process.exit removed */
-    } catch (err) {
-        console.error("Error creating academic tables:", err.message);
-        /* process.exit removed */
-    }
+    // =========================================================================
+    // 8. FEE MANAGEMENT MODULE TABLES
+    // =========================================================================
+    await (async () => {
+        try {
+            console.log("💰 Setting up Fee Management Module Tables...");
+
+            // 8.1 fee_heads Table (Create Table FIRST before any queries)
+            await pool.query(`
+                CREATE TABLE IF NOT EXISTS fee_heads (
+                    head_id SERIAL PRIMARY KEY,
+                    head_name VARCHAR(100) UNIQUE NOT NULL,
+                    head_type VARCHAR(30) NOT NULL DEFAULT 'regular',
+                    frequency VARCHAR(20) NOT NULL DEFAULT 'monthly',
+                    description TEXT,
+                    is_active BOOLEAN DEFAULT TRUE,
+                    created_at TIMESTAMP DEFAULT NOW()
+                );
+            `);
+
+            // Cleanup duplicate fee_heads if table existed with duplicates
+            await pool.query(`
+                DELETE FROM fee_heads a USING fee_heads b
+                WHERE a.head_id > b.head_id AND a.head_name = b.head_name;
+            `).catch(() => { });
+
+            // Enforce unique constraint
+            await pool.query(`
+                ALTER TABLE fee_heads ADD CONSTRAINT fee_heads_head_name_key UNIQUE (head_name);
+            `).catch(() => { /* Ignore constraint already exists error */ });
+
+            // Seed default fee heads idempotently
+            const defaultFeeHeads = [
+                ['Tuition Fee', 'regular', 'monthly', 'Monthly tuition charges'],
+                ['Transport Fee', 'regular', 'monthly', 'School bus / transport service'],
+                ['Exam Fee', 'extra', 'once', 'Examination charges per term'],
+                ['Annual Fund', 'extra', 'yearly', 'Annual school development fund'],
+                ['Sports Fee', 'regular', 'monthly', 'Sports activities & PE charges'],
+                ['Lab Charges', 'regular', 'monthly', 'Science/Computer lab usage'],
+                ['Library Fee', 'regular', 'monthly', 'Library access & maintenance'],
+                ['Late Fine', 'extra', 'once', 'Fine for late fee payment'],
+                ['Previous Balance', 'prev_balance', 'monthly', 'Previous dues carried forward']
+            ];
+
+            for (const [hName, hType, hFreq, hDesc] of defaultFeeHeads) {
+                await pool.query(`
+                    INSERT INTO fee_heads (head_name, head_type, frequency, description)
+                    VALUES ($1, $2, $3, $4)
+                    ON CONFLICT (head_name) DO UPDATE SET head_type = $2, frequency = $3, description = $4
+                `, [hName, hType, hFreq, hDesc]);
+            }
+
+            // 8.2 fee_plans Table
+            await pool.query(`
+                CREATE TABLE IF NOT EXISTS fee_plans (
+                    plan_id SERIAL PRIMARY KEY,
+                    plan_name VARCHAR(150) NOT NULL,
+                    class_id INTEGER REFERENCES classes(class_id) ON DELETE SET NULL,
+                    applies_to_all BOOLEAN DEFAULT FALSE,
+                    academic_year VARCHAR(20) NOT NULL DEFAULT '2026',
+                    description TEXT,
+                    is_active BOOLEAN DEFAULT TRUE,
+                    created_at TIMESTAMP DEFAULT NOW()
+                );
+                ALTER TABLE fee_plans ADD COLUMN IF NOT EXISTS applies_to_all BOOLEAN DEFAULT FALSE;
+            `);
+
+            // 8.3 fee_plan_classes Table
+            await pool.query(`
+                CREATE TABLE IF NOT EXISTS fee_plan_classes (
+                    id SERIAL PRIMARY KEY,
+                    plan_id INTEGER NOT NULL REFERENCES fee_plans(plan_id) ON DELETE CASCADE,
+                    class_id INTEGER NOT NULL REFERENCES classes(class_id) ON DELETE CASCADE,
+                    UNIQUE(plan_id, class_id)
+                );
+            `);
+
+            // 8.4 fee_plan_heads Table
+            await pool.query(`
+                CREATE TABLE IF NOT EXISTS fee_plan_heads (
+                    id SERIAL PRIMARY KEY,
+                    plan_id INTEGER NOT NULL REFERENCES fee_plans(plan_id) ON DELETE CASCADE,
+                    head_id INTEGER NOT NULL REFERENCES fee_heads(head_id) ON DELETE CASCADE,
+                    amount NUMERIC(10,2) NOT NULL DEFAULT 0,
+                    UNIQUE(plan_id, head_id)
+                );
+            `);
+
+            // 8.5 monthly_fee_slips Table
+            await pool.query(`
+                CREATE TABLE IF NOT EXISTS monthly_fee_slips (
+                    slip_id SERIAL PRIMARY KEY,
+                    student_id INTEGER NOT NULL REFERENCES students(student_id) ON DELETE CASCADE,
+                    family_id VARCHAR(50),
+                    class_id INTEGER REFERENCES classes(class_id) ON DELETE SET NULL,
+                    month INTEGER NOT NULL CHECK (month BETWEEN 1 AND 12),
+                    year INTEGER NOT NULL,
+                    due_date DATE,
+                    issue_date DATE,
+                    has_multi_months BOOLEAN DEFAULT FALSE,
+                    months_list INTEGER[],
+                    is_family_slip BOOLEAN DEFAULT FALSE,
+                    is_printed BOOLEAN DEFAULT FALSE,
+                    printed_at TIMESTAMP,
+                    total_amount NUMERIC(10,2) NOT NULL DEFAULT 0,
+                    paid_amount NUMERIC(10,2) NOT NULL DEFAULT 0,
+                    status VARCHAR(20) NOT NULL DEFAULT 'unpaid',
+                    generated_at TIMESTAMP DEFAULT NOW(),
+                    UNIQUE(student_id, month, year)
+                );
+            `);
+
+            const slipAlters = [
+                "ALTER TABLE monthly_fee_slips ADD COLUMN IF NOT EXISTS issue_date DATE",
+                "ALTER TABLE monthly_fee_slips ADD COLUMN IF NOT EXISTS is_family_slip BOOLEAN DEFAULT FALSE",
+                "ALTER TABLE monthly_fee_slips ADD COLUMN IF NOT EXISTS has_multi_months BOOLEAN DEFAULT FALSE",
+                "ALTER TABLE monthly_fee_slips ADD COLUMN IF NOT EXISTS months_list INTEGER[]",
+                "ALTER TABLE monthly_fee_slips ADD COLUMN IF NOT EXISTS is_printed BOOLEAN DEFAULT FALSE",
+                "ALTER TABLE monthly_fee_slips ADD COLUMN IF NOT EXISTS printed_at TIMESTAMP"
+            ];
+            for (const q of slipAlters) {
+                await pool.query(q);
+            }
+
+            // Indexes for Fee Slips & Reports Query Optimization
+            await pool.query(`
+                CREATE INDEX IF NOT EXISTS idx_mfs_year_month ON monthly_fee_slips(year, month);
+                CREATE INDEX IF NOT EXISTS idx_mfs_months_list ON monthly_fee_slips USING GIN (months_list);
+                CREATE INDEX IF NOT EXISTS idx_mfs_family ON monthly_fee_slips(family_id);
+                CREATE INDEX IF NOT EXISTS idx_mfs_student_month_year ON monthly_fee_slips(student_id, year, month);
+            `);
+
+            // 8.6 slip_line_items Table
+            await pool.query(`
+                CREATE TABLE IF NOT EXISTS slip_line_items (
+                    item_id SERIAL PRIMARY KEY,
+                    slip_id INTEGER NOT NULL REFERENCES monthly_fee_slips(slip_id) ON DELETE CASCADE,
+                    head_id INTEGER REFERENCES fee_heads(head_id) ON DELETE SET NULL,
+                    head_name VARCHAR(100) NOT NULL,
+                    amount NUMERIC(10,2) NOT NULL DEFAULT 0,
+                    paid_amount NUMERIC(10,2) NOT NULL DEFAULT 0,
+                    note TEXT
+                );
+                CREATE INDEX IF NOT EXISTS idx_sli_slip_id ON slip_line_items(slip_id);
+                CREATE INDEX IF NOT EXISTS idx_sli_head_id ON slip_line_items(head_id);
+            `);
+
+            // 8.7 fee_payments Table
+            await pool.query(`
+                CREATE TABLE IF NOT EXISTS fee_payments (
+                    payment_id SERIAL PRIMARY KEY,
+                    slip_id INTEGER NOT NULL REFERENCES monthly_fee_slips(slip_id) ON DELETE CASCADE,
+                    amount_paid NUMERIC(10,2) NOT NULL,
+                    payment_date DATE NOT NULL DEFAULT CURRENT_DATE,
+                    payment_method VARCHAR(30) DEFAULT 'cash',
+                    received_by VARCHAR(100),
+                    reference_no VARCHAR(100),
+                    notes TEXT,
+                    is_printed BOOLEAN DEFAULT FALSE,
+                    printed_at TIMESTAMP,
+                    created_at TIMESTAMP DEFAULT NOW()
+                );
+                ALTER TABLE fee_payments ADD COLUMN IF NOT EXISTS is_printed BOOLEAN DEFAULT FALSE;
+                ALTER TABLE fee_payments ADD COLUMN IF NOT EXISTS printed_at TIMESTAMP;
+            `);
+
+            // 8.8 family_opb_payments Table
+            await pool.query(`
+                CREATE TABLE IF NOT EXISTS family_opb_payments (
+                    payment_id SERIAL PRIMARY KEY,
+                    family_id VARCHAR(50) NOT NULL REFERENCES families(family_id) ON DELETE CASCADE,
+                    amount NUMERIC(10,2) NOT NULL CHECK(amount > 0),
+                    payment_date DATE NOT NULL DEFAULT CURRENT_DATE,
+                    payment_method VARCHAR(30) DEFAULT 'cash' CHECK(payment_method IN ('cash','bank','cheque','online','other')),
+                    received_by VARCHAR(100),
+                    reference_no VARCHAR(100),
+                    notes TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+                CREATE INDEX IF NOT EXISTS idx_opb_payments_family ON family_opb_payments(family_id);
+            `);
+
+            // 8.9 admission_fee_ledger Table
+            await pool.query(`
+                CREATE TABLE IF NOT EXISTS admission_fee_ledger (
+                    ledger_id SERIAL PRIMARY KEY,
+                    student_id INTEGER NOT NULL REFERENCES students(student_id) ON DELETE CASCADE,
+                    total_amount NUMERIC(10,2) NOT NULL DEFAULT 0,
+                    paid_amount NUMERIC(10,2) NOT NULL DEFAULT 0,
+                    discount NUMERIC(10,2) DEFAULT 0,
+                    discount_amount NUMERIC(10,2) DEFAULT 0,
+                    status VARCHAR(20) NOT NULL DEFAULT 'unpaid',
+                    admission_date DATE,
+                    notes TEXT,
+                    created_at TIMESTAMP DEFAULT NOW(),
+                    UNIQUE(student_id)
+                );
+                ALTER TABLE admission_fee_ledger ADD COLUMN IF NOT EXISTS discount NUMERIC(10,2) DEFAULT 0;
+                ALTER TABLE admission_fee_ledger ADD COLUMN IF NOT EXISTS discount_amount NUMERIC(10,2) DEFAULT 0;
+            `);
+
+            // 8.10 admission_fee_payments Table
+            await pool.query(`
+                CREATE TABLE IF NOT EXISTS admission_fee_payments (
+                    payment_id SERIAL PRIMARY KEY,
+                    ledger_id INTEGER NOT NULL REFERENCES admission_fee_ledger(ledger_id) ON DELETE CASCADE,
+                    amount_paid NUMERIC(10,2) NOT NULL,
+                    discount_amount NUMERIC(10,2) DEFAULT 0,
+                    payment_date DATE NOT NULL DEFAULT CURRENT_DATE,
+                    payment_method VARCHAR(30) DEFAULT 'cash',
+                    received_by VARCHAR(100),
+                    reference_no VARCHAR(100),
+                    notes TEXT,
+                    created_at TIMESTAMP DEFAULT NOW()
+                );
+            `);
+
+            // 8.11 exam_fee_collections Table
+            await pool.query(`
+                CREATE TABLE IF NOT EXISTS exam_fee_collections (
+                    id SERIAL PRIMARY KEY,
+                    collection_name VARCHAR(100) NOT NULL,
+                    student_id INTEGER NOT NULL REFERENCES students(student_id) ON DELETE CASCADE,
+                    class_id INTEGER NOT NULL REFERENCES classes(class_id) ON DELETE CASCADE,
+                    section_id INTEGER NOT NULL REFERENCES sections(section_id) ON DELETE CASCADE,
+                    amount NUMERIC(10,2) NOT NULL DEFAULT 0 CHECK (amount >= 0),
+                    remarks TEXT,
+                    collected_by INTEGER REFERENCES app_users(id) ON DELETE SET NULL,
+                    collection_date DATE DEFAULT CURRENT_DATE,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(collection_name, student_id)
+                );
+            `);
+
+            console.log("   ✅ Fee Management Module Tables set up successfully.");
+        } catch (err) {
+            console.error("   ❌ Error setting up fee tables:", err.message);
+        }
+    })();
+
+    // =========================================================================
+    // 9. EXAMINATIONS & CLASS TESTS MODULE TABLES
+    // =========================================================================
+    await (async () => {
+        try {
+            console.log("📝 Setting up Examinations & Class Tests Module Tables...");
+
+            // 9.1 exam_marks Table
+            await pool.query(`
+                CREATE TABLE IF NOT EXISTS exam_marks (
+                    mark_id SERIAL PRIMARY KEY,
+                    student_id INTEGER NOT NULL REFERENCES students(student_id) ON DELETE CASCADE,
+                    subject_id INTEGER NOT NULL REFERENCES subjects(subject_id) ON DELETE CASCADE,
+                    term_id INTEGER NOT NULL REFERENCES academic_terms(id) ON DELETE CASCADE,
+                    academic_year_id INTEGER REFERENCES academic_years(id) ON DELETE SET NULL,
+                    class_id INTEGER NOT NULL REFERENCES classes(class_id) ON DELETE CASCADE,
+                    section_id INTEGER NOT NULL REFERENCES sections(section_id) ON DELETE CASCADE,
+                    total_marks NUMERIC(10,2) NOT NULL CHECK (total_marks > 0),
+                    obtained_marks NUMERIC(10,2) NOT NULL CHECK (obtained_marks >= 0),
+                    entered_by_user_id INTEGER REFERENCES app_users(id) ON DELETE SET NULL,
+                    entered_by_employee_id INTEGER REFERENCES employees(employee_id) ON DELETE SET NULL,
+                    status VARCHAR(20) DEFAULT 'pending',
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(student_id, subject_id, term_id),
+                    CHECK (obtained_marks <= total_marks)
+                );
+                ALTER TABLE exam_marks ADD COLUMN IF NOT EXISTS status VARCHAR(20) DEFAULT 'pending';
+            `);
+
+            // 9.2 exam_mark_locks Table
+            await pool.query(`
+                CREATE TABLE IF NOT EXISTS exam_mark_locks (
+                    lock_id SERIAL PRIMARY KEY,
+                    term_id INTEGER NOT NULL REFERENCES academic_terms(id) ON DELETE CASCADE,
+                    class_id INTEGER NOT NULL REFERENCES classes(class_id) ON DELETE CASCADE,
+                    section_id INTEGER NOT NULL REFERENCES sections(section_id) ON DELETE CASCADE,
+                    subject_id INTEGER NOT NULL REFERENCES subjects(subject_id) ON DELETE CASCADE,
+                    locked_by_user_id INTEGER NOT NULL REFERENCES app_users(id) ON DELETE CASCADE,
+                    locked_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(term_id, class_id, section_id, subject_id, locked_by_user_id)
+                );
+            `);
+
+            // 9.3 test_papers Table
+            await pool.query(`
+                CREATE TABLE IF NOT EXISTS test_papers (
+                    test_id SERIAL PRIMARY KEY,
+                    test_name VARCHAR(200) NOT NULL,
+                    description TEXT,
+                    total_marks NUMERIC(10,2) NOT NULL CHECK (total_marks > 0),
+                    class_id INTEGER NOT NULL REFERENCES classes(class_id) ON DELETE CASCADE,
+                    section_id INTEGER NOT NULL REFERENCES sections(section_id) ON DELETE CASCADE,
+                    subject_id INTEGER NOT NULL REFERENCES subjects(subject_id) ON DELETE CASCADE,
+                    created_by_user_id INTEGER REFERENCES app_users(id) ON DELETE SET NULL,
+                    created_by_employee_id INTEGER REFERENCES employees(employee_id) ON DELETE SET NULL,
+                    status VARCHAR(20) DEFAULT 'pending',
+                    approved_by INTEGER REFERENCES app_users(id) ON DELETE SET NULL,
+                    published_by INTEGER REFERENCES app_users(id) ON DELETE SET NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+                ALTER TABLE test_papers ADD COLUMN IF NOT EXISTS status VARCHAR(20) DEFAULT 'pending';
+                ALTER TABLE test_papers ADD COLUMN IF NOT EXISTS approved_by INTEGER REFERENCES app_users(id) ON DELETE SET NULL;
+                ALTER TABLE test_papers ADD COLUMN IF NOT EXISTS published_by INTEGER REFERENCES app_users(id) ON DELETE SET NULL;
+            `);
+
+            // 9.4 test_marks Table
+            await pool.query(`
+                CREATE TABLE IF NOT EXISTS test_marks (
+                    test_mark_id SERIAL PRIMARY KEY,
+                    test_id INTEGER NOT NULL REFERENCES test_papers(test_id) ON DELETE CASCADE,
+                    student_id INTEGER NOT NULL REFERENCES students(student_id) ON DELETE CASCADE,
+                    obtained_marks NUMERIC(10,2) CHECK (obtained_marks >= 0),
+                    is_absent BOOLEAN DEFAULT FALSE,
+                    remarks VARCHAR(300),
+                    UNIQUE(test_id, student_id)
+                );
+                ALTER TABLE test_marks ADD COLUMN IF NOT EXISTS is_absent BOOLEAN DEFAULT FALSE;
+            `);
+
+            // 9.5 test_paper_locks Table
+            await pool.query(`
+                CREATE TABLE IF NOT EXISTS test_paper_locks (
+                    lock_id SERIAL PRIMARY KEY,
+                    test_id INTEGER NOT NULL REFERENCES test_papers(test_id) ON DELETE CASCADE,
+                    locked_by_user_id INTEGER NOT NULL REFERENCES app_users(id) ON DELETE CASCADE,
+                    locked_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(test_id, locked_by_user_id)
+                );
+            `);
+
+            // 9.6 exam_sheet_approvals Table
+            await pool.query(`
+                CREATE TABLE IF NOT EXISTS exam_sheet_approvals (
+                    id SERIAL PRIMARY KEY,
+                    sheet_type VARCHAR(20) NOT NULL CHECK (sheet_type IN ('term_exam', 'class_test')),
+                    term_id INTEGER REFERENCES academic_terms(id) ON DELETE CASCADE,
+                    class_id INTEGER NOT NULL REFERENCES classes(class_id) ON DELETE CASCADE,
+                    section_id INTEGER NOT NULL REFERENCES sections(section_id) ON DELETE CASCADE,
+                    subject_id INTEGER REFERENCES subjects(subject_id) ON DELETE CASCADE,
+                    test_id INTEGER REFERENCES test_papers(test_id) ON DELETE CASCADE,
+                    status VARCHAR(20) NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'published')),
+                    submitted_by INTEGER REFERENCES app_users(id) ON DELETE SET NULL,
+                    submitted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    approved_by INTEGER REFERENCES app_users(id) ON DELETE SET NULL,
+                    approved_at TIMESTAMP,
+                    published_by INTEGER REFERENCES app_users(id) ON DELETE SET NULL,
+                    published_at TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_uniq_sheet_term_exam ON exam_sheet_approvals (sheet_type, term_id, class_id, section_id, subject_id) WHERE sheet_type = 'term_exam';
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_uniq_sheet_class_test ON exam_sheet_approvals (test_id) WHERE sheet_type = 'class_test';
+            `);
+
+            // Indexes for Exam & Test Query Optimization
+            await pool.query(`
+                CREATE INDEX IF NOT EXISTS idx_exam_marks_term_subject ON exam_marks(term_id, subject_id);
+                CREATE INDEX IF NOT EXISTS idx_exam_marks_class_section ON exam_marks(class_id, section_id);
+                CREATE INDEX IF NOT EXISTS idx_test_papers_class_sec_sub ON test_papers(class_id, section_id, subject_id);
+                CREATE INDEX IF NOT EXISTS idx_test_marks_test_student ON test_marks(test_id, student_id);
+            `);
+
+            console.log("   ✅ Examinations & Class Tests Module Tables set up successfully.");
+        } catch (err) {
+            console.error("   ❌ Error setting up exam tables:", err.message);
+        }
+    })();
+
+    // =========================================================================
+    // 10. DATA INTEGRITY & REPAIR AUDITS
+    // =========================================================================
+    await (async () => {
+        try {
+            console.log("🛠️ Running Data Integrity Repairs...");
+
+            // Repair blood siblings where father names differ
+            const repairResult = await pool.query(`
+                UPDATE student_siblings ss
+                SET relation_type = 'cousin'
+                FROM students a, students b
+                WHERE ss.student_id = a.student_id
+                  AND ss.sibling_id = b.student_id
+                  AND ss.relation_type = 'blood'
+                  AND COALESCE(REPLACE(LOWER(TRIM(a.father_name)), ' ', ''), '') != ''
+                  AND COALESCE(REPLACE(LOWER(TRIM(b.father_name)), ' ', ''), '') != ''
+                  AND COALESCE(REPLACE(LOWER(TRIM(a.father_name)), ' ', ''), '') 
+                      != COALESCE(REPLACE(LOWER(TRIM(b.father_name)), ' ', ''), '')
+            `);
+            if (repairResult.rowCount > 0) {
+                console.log(`   ✓ Repaired ${repairResult.rowCount} incorrectly marked blood sibling rows.`);
+            }
+
+            console.log("   ✅ Data Integrity Repairs completed.");
+        } catch (err) {
+            console.error("   ❌ Data repair error:", err.message);
+        }
+    })();
+
+    // =========================================================================
+    // 11. NOTIFICATIONS MODULE TABLE & SEQUENCE SYNC
+    // =========================================================================
+    await (async () => {
+        try {
+            console.log("🔔 Setting up Notifications Table & Indexes...");
+
+            await pool.query(`
+                CREATE TABLE IF NOT EXISTS notifications (
+                    id SERIAL PRIMARY KEY,
+                    user_id INT REFERENCES app_users(id) ON DELETE CASCADE,
+                    family_id VARCHAR(50),
+                    student_id INT REFERENCES students(student_id) ON DELETE CASCADE,
+                    role VARCHAR(50),
+                    type VARCHAR(50) NOT NULL,
+                    title VARCHAR(255) NOT NULL,
+                    message TEXT NOT NULL,
+                    link VARCHAR(255),
+                    is_read BOOLEAN DEFAULT FALSE,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+
+                CREATE INDEX IF NOT EXISTS idx_notif_family ON notifications(family_id);
+                CREATE INDEX IF NOT EXISTS idx_notif_user ON notifications(user_id);
+                CREATE INDEX IF NOT EXISTS idx_notif_role ON notifications(role);
+                CREATE INDEX IF NOT EXISTS idx_notif_read ON notifications(is_read);
+            `);
+
+            console.log("   ✅ Notifications Table & Indexes created successfully.");
+
+            // Synchronize all primary key sequences
+            const { syncAllSequences } = require('./utils/sequenceSync');
+            await syncAllSequences(pool);
+
+        } catch (err) {
+            console.error("   ❌ Notifications table setup error:", err.message);
+        }
+    })();
+
+    console.log('\n======================================================');
+    console.log('   MASTER SEEDER COMPLETED SUCCESSFULLY               ');
+    console.log('======================================================\n');
 }
 
-await createAcademicTables();
-
-    } catch(err) {
-      console.error('[Error Details in create-academic-table.js]:', err.message);
-    }
-  })();
-  // ====== FROM: add-userid-col.js ======
-  await (async () => {
-    try {
-
-
-async function migrate() {
-    try {
-        console.log("Adding user_id to students table...");
-        await pool.query(`
-            ALTER TABLE students 
-            ADD COLUMN IF NOT EXISTS user_id INT REFERENCES app_users(id) ON DELETE SET NULL;
-        `);
-        console.log("Migration complete.");
-    } catch (e) {
-        console.error(e);
-    }
+if (require.main === module) {
+    runMasterSeeder()
+        .then(() => process.exit(0))
+        .catch((err) => {
+            console.error("Fatal Master Seeder Error:", err);
+            process.exit(1);
+        });
 }
 
-await migrate();
-    } catch(err) {
-      console.error('[Error Details in add-userid-col.js]:', err.message);
-    }
-  })();
-  // ====== FROM: add-print-tracking.js ======
-  await (async () => {
-    try {
-
-
-async function run() {
-    const client = await pool.connect();
-    try {
-        await client.query('BEGIN');
-        await client.query(`
-            ALTER TABLE monthly_fee_slips
-            ADD COLUMN IF NOT EXISTS is_printed BOOLEAN DEFAULT FALSE,
-            ADD COLUMN IF NOT EXISTS printed_at TIMESTAMP
-        `);
-        console.log('✅ Added is_printed + printed_at to monthly_fee_slips');
-        await client.query('COMMIT');
-    } catch (err) {
-        await client.query('ROLLBACK');
-        console.error('❌ Error:', err.message);
-    } finally {
-        client.release();
-        /* pool.end() removed for master seeder; */
-    }
-}
-await run();
-
-    } catch(err) {
-      console.error('[Error Details in add-print-tracking.js]:', err.message);
-    }
-  })();
-  // ====== FROM: seed-school-settings.js ======
-  await (async () => {
-    try {
-
-async function run() {
-    const inserts = [
-        ['school_address', '83/M Madina Colony Vehari', 'general', 'School address'],
-        ['school_phone2', '0308-7696430', 'general', 'School phone 2'],
-        ['school_phone3', '067-3366383', 'general', 'School phone 3'],
-        ['school_logo_url', '', 'general', 'School logo URL'],
-        ['school_tagline', '', 'general', 'School tagline'],
-    ];
-    for (const [key, val, cat, desc] of inserts) {
-        await pool.query(
-            `INSERT INTO system_settings (setting_key, setting_value, category, description)
-             VALUES ($1,$2,$3,$4) ON CONFLICT (setting_key) DO NOTHING`,
-            [key, val, cat, desc]
-        );
-        console.log('Seeded:', key);
-    }
-    /* pool.end() removed for master seeder; */
-}
-await run();
-
-    } catch(err) {
-      console.error('[Error Details in seed-school-settings.js]:', err.message);
-    }
-  })();
-  // ====== FROM: seed-backup-settings.js ======
-  await (async () => {
-    try {
-
-
-async function seed() {
-    try {
-        await pool.query(`INSERT INTO system_settings (setting_key, setting_value, category, description) VALUES 
-            ('auto_backup_enabled', 'false', 'backup', 'Enable automatic scheduled backups'), 
-            ('backup_frequency', 'daily', 'backup', 'Frequency of backups: daily, weekly, monthly'), 
-            ('backup_time', '00:00', 'backup', 'Time to run backup (HH:MM)'),
-            ('backup_path', '', 'backup', 'Local folder path where auto-backup file will be downloaded (e.g. C:\\Backups\\School)')
-            ON CONFLICT (setting_key) DO NOTHING;`);
-        // Ensure backup_frequency is in correct category (fix for older installs)
-        await pool.query(`UPDATE system_settings SET category = 'backup' WHERE setting_key = 'backup_frequency'`);
-        console.log('Backup settings seeded (including backup_path)');
-        /* process.exit removed */
-    } catch (e) {
-        console.log(e);
-        /* process.exit removed */
-    }
-}
-await seed();
-    } catch(err) {
-      console.error('[Error Details in seed-backup-settings.js]:', err.message);
-    }
-  })();
-  console.log('======================================================');
-  console.log('   MASTER SEEDER COMPLETED SUCCESSFULLY               ');
-  console.log('======================================================');
-  process.exit(0);
-}
-
-runMasterSeeder();
+module.exports = { runMasterSeeder };

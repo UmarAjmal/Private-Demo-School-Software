@@ -55,7 +55,7 @@ export default function Loading() {
           border: 3px solid transparent;
         }
 
-        /* Ring 1 — orange, tilted on X */
+        /* Ring 1 orange, tilted on X */
         .ld-ring1 {
           border-top-color: #FE7F2D;
           border-bottom-color: rgba(254,127,45,0.2);
@@ -65,7 +65,7 @@ export default function Loading() {
         }
         @keyframes ld-spin1 { to { transform: rotateX(60deg) rotateZ(360deg); } }
 
-        /* Ring 2 — teal, tilted on Y */
+        /* Ring 2 teal, tilted on Y */
         .ld-ring2 {
           border-right-color: #215E61;
           border-left-color: rgba(33,94,97,0.2);
@@ -75,7 +75,7 @@ export default function Loading() {
         }
         @keyframes ld-spin2 { to { transform: rotateY(60deg) rotateZ(360deg); } }
 
-        /* Ring 3 — dark, flat equatorial */
+        /* Ring 3 dark, flat equatorial */
         .ld-ring3 {
           border-top-color: #233D4D;
           border-bottom-color: rgba(35,61,77,0.2);

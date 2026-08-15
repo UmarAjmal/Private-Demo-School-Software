@@ -37,7 +37,7 @@ export default function PermissionGuard({
         }
     }, [isLoading, isLoggedIn, router]);
 
-    // Still resolving auth state — show nothing (avoids flicker)
+    // Still resolving auth state show nothing (avoids flicker)
     if (isLoading) {
         return (
             <div className="d-flex align-items-center justify-content-center" style={{ minHeight: '50vh' }}>
@@ -49,10 +49,10 @@ export default function PermissionGuard({
     // Not authenticated
     if (!isLoggedIn) return null;
 
-    // Has permission — render children
+    // Has permission render children
     if (allowed) return <>{children}</>;
 
-    // No permission — show Access Denied
+    // No permission show Access Denied
     const deniedUI = (
         <div
             className="d-flex flex-column align-items-center justify-content-center text-center"

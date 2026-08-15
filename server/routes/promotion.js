@@ -2,6 +2,47 @@ const express = require('express');
 const router = express.Router();
 const pool = require('../db');
 
+async function ensurePromotionTables() {
+    try {
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS student_academic_records (
+                id SERIAL PRIMARY KEY,
+                student_id INTEGER NOT NULL REFERENCES students(student_id) ON DELETE CASCADE,
+                academic_year_id INTEGER NOT NULL REFERENCES academic_years(id) ON DELETE CASCADE,
+                class_id INTEGER NOT NULL REFERENCES classes(class_id) ON DELETE CASCADE,
+                section_id INTEGER NOT NULL REFERENCES sections(section_id) ON DELETE CASCADE,
+                roll_no VARCHAR(50),
+                total_marks NUMERIC(10,2) DEFAULT 0,
+                obtained_marks NUMERIC(10,2) DEFAULT 0,
+                percentage NUMERIC(5,2) DEFAULT 0,
+                grade VARCHAR(10),
+                rank_in_class INTEGER,
+                status VARCHAR(20) DEFAULT 'active',
+                promotion_target_year_id INTEGER REFERENCES academic_years(id) ON DELETE SET NULL,
+                promotion_target_class_id INTEGER REFERENCES classes(class_id) ON DELETE SET NULL,
+                promoted_to_year_id INTEGER REFERENCES academic_years(id) ON DELETE SET NULL,
+                promoted_to_class_id INTEGER REFERENCES classes(class_id) ON DELETE SET NULL,
+                promoted_on DATE,
+                promoted_at TIMESTAMP,
+                promoted_by_user_id INTEGER REFERENCES app_users(id) ON DELETE SET NULL,
+                attendance_percentage NUMERIC(5,2),
+                remarks TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(student_id, academic_year_id)
+            );
+
+            ALTER TABLE student_academic_records 
+            ADD COLUMN IF NOT EXISTS promotion_target_year_id INTEGER REFERENCES academic_years(id) ON DELETE SET NULL,
+            ADD COLUMN IF NOT EXISTS promotion_target_class_id INTEGER REFERENCES classes(class_id) ON DELETE SET NULL,
+            ADD COLUMN IF NOT EXISTS promoted_at TIMESTAMP,
+            ADD COLUMN IF NOT EXISTS promoted_by_user_id INTEGER REFERENCES app_users(id) ON DELETE SET NULL;
+        `);
+    } catch (e) {
+        console.error("Error ensuring student_academic_records table:", e.message);
+    }
+}
+
 // Load students for promotion
 router.get('/load-students', async (req, res) => {
     try {
@@ -11,6 +52,11 @@ router.get('/load-students', async (req, res) => {
         if (!year_id) {
             return res.status(400).json({ error: 'Academic year is required' });
         }
+
+        // Ensure promotion tables exist in database
+        await ensurePromotionTables();
+
+        const yearIdNum = parseInt(year_id.toString(), 10);
 
         // Build query dynamically based on filters
         let query = `
@@ -26,32 +72,32 @@ router.get('/load-students', async (req, res) => {
                 COALESCE(
                     (SELECT SUM(obtained_marks) 
                      FROM exam_marks em 
-                     WHERE em.student_id = s.student_id AND em.academic_year_id = $1),
+                     WHERE em.student_id = s.student_id AND (em.academic_year_id = $1 OR $1 IS NULL)),
                     0
                 ) as total_marks,
                 COALESCE(
                     (SELECT SUM(total_marks) 
                      FROM exam_marks em 
-                     WHERE em.student_id = s.student_id AND em.academic_year_id = $1),
+                     WHERE em.student_id = s.student_id AND (em.academic_year_id = $1 OR $1 IS NULL)),
                     0
                 ) as max_marks,
                 CASE 
                     WHEN COALESCE(
                         (SELECT SUM(total_marks) 
                          FROM exam_marks em 
-                         WHERE em.student_id = s.student_id AND em.academic_year_id = $1),
+                         WHERE em.student_id = s.student_id AND (em.academic_year_id = $1 OR $1 IS NULL)),
                         0
                     ) > 0 
                     THEN ROUND(
                         (COALESCE(
                             (SELECT SUM(obtained_marks) 
                              FROM exam_marks em 
-                             WHERE em.student_id = s.student_id AND em.academic_year_id = $1),
+                             WHERE em.student_id = s.student_id AND (em.academic_year_id = $1 OR $1 IS NULL)),
                             0
                         ) * 100.0 / COALESCE(
                             (SELECT SUM(total_marks) 
                              FROM exam_marks em 
-                             WHERE em.student_id = s.student_id AND em.academic_year_id = $1),
+                             WHERE em.student_id = s.student_id AND (em.academic_year_id = $1 OR $1 IS NULL)),
                             0
                         )),
                         2
@@ -69,21 +115,21 @@ router.get('/load-students', async (req, res) => {
             FROM students s
             LEFT JOIN classes c ON s.class_id = c.class_id
             LEFT JOIN sections sec ON s.section_id = sec.section_id
-            WHERE LOWER(s.status) = 'active'
+            WHERE LOWER(TRIM(s.status)) = 'active'
         `;
 
-        const params = [year_id];
+        const params = [yearIdNum];
         let paramIndex = 2;
 
-        if (class_id) {
+        if (class_id && class_id !== '') {
             query += ` AND s.class_id = $${paramIndex}`;
-            params.push(class_id);
+            params.push(parseInt(class_id.toString(), 10));
             paramIndex++;
         }
 
-        if (section_id) {
+        if (section_id && section_id !== '') {
             query += ` AND s.section_id = $${paramIndex}`;
-            params.push(section_id);
+            params.push(parseInt(section_id.toString(), 10));
             paramIndex++;
         }
 
@@ -92,8 +138,8 @@ router.get('/load-students', async (req, res) => {
         const result = await pool.query(query, params);
         res.json(result.rows);
     } catch (err) {
-        console.error(err.message);
-        res.status(500).json({ error: 'Server Error' });
+        console.error("Error in GET /promotion/load-students:", err);
+        res.status(500).json({ error: err.message || 'Server Error' });
     }
 });
 

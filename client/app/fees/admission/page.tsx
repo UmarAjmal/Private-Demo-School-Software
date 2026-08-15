@@ -106,7 +106,7 @@ export default function AdmissionFeePage() {
           });
         }
       })
-      .catch(() => {});
+      .catch(() => { });
   }, [filterStatus]);
 
   const fetchData = async () => {
@@ -171,7 +171,7 @@ export default function AdmissionFeePage() {
       feeBody += `<tr><td>Previous Payment (Credit)</td><td>\u2212 ${fmtR(prevPaid)}</td></tr>`;
     if (discountAmt > 0)
       feeBody += `<tr><td>Discount</td><td>\u2212 ${fmtR(discountAmt)}</td></tr>`;
-    
+
     if (tuitionAmount > 0) {
       feeBody += `<tr><td>Current Month Tuition Fee</td><td>${fmtR(tuitionAmount)}</td></tr>`;
     }
@@ -200,7 +200,7 @@ export default function AdmissionFeePage() {
       .join(" ; ");
     const logoHtml = school.school_logo_url
       ? `<img src="${school.school_logo_url}" style="width:16mm;height:16mm;object-fit:contain;margin-right:3mm;flex-shrink:0;" />`
-      : `<div style="width:16mm;height:16mm;background-color:#007bff;margin-right:3mm;flex-shrink:0;"></div>`;
+      : `<div style="width:16mm;height:16mm;background-color:transparent;margin-right:3mm;flex-shrink:0;"></div>`;
 
     const html = `<!DOCTYPE html>
 <html lang="en">
@@ -383,7 +383,7 @@ export default function AdmissionFeePage() {
             Ledger
           </h2>
           <p className="text-muted small mb-0">
-            Track one-time admission fee outstanding per student — auto-linked
+            Track one-time admission fee outstanding per student auto-linked
             on admission.
           </p>
         </div>
@@ -750,6 +750,7 @@ export default function AdmissionFeePage() {
                         <input
                           type="number"
                           className="form-control fw-bold fs-5"
+                          onKeyDown={e => ['e', 'E', '+', '-'].includes(e.key) && e.preventDefault()}
                           required
                           min="0"
                           max={
@@ -770,7 +771,7 @@ export default function AdmissionFeePage() {
                         Max:{" "}
                         {fmt(
                           selectedLedger.remaining_amount -
-                            (parseFloat(payForm.discount_amount) || 0),
+                          (parseFloat(payForm.discount_amount) || 0),
                         )}
                       </small>
                     </div>
@@ -785,6 +786,7 @@ export default function AdmissionFeePage() {
                         <input
                           type="number"
                           className="form-control fw-bold fs-5"
+                          onKeyDown={e => ['e', 'E', '+', '-'].includes(e.key) && e.preventDefault()}
                           min="0"
                           max={selectedLedger.remaining_amount}
                           value={payForm.discount_amount}
@@ -807,44 +809,46 @@ export default function AdmissionFeePage() {
                         Will reduce the remaining balance directly.
                       </small>
                     </div>                      <div className="col-12 mt-3 p-3 bg-light rounded border border-info">
-                        <div className="form-check form-switch mb-3">
-                          <input 
-                            className="form-check-input" 
-                            type="checkbox" 
-                            id="includeTuitionToggle" 
-                            checked={includeTuitionFee} 
-                            onChange={(e) => setIncludeTuitionFee(e.target.checked)} 
-                          />
-                          <label className="form-check-label fw-bold text-primary ms-2" htmlFor="includeTuitionToggle">
-                            Receive Current Month Tuition Fee Too?
-                          </label>
-                        </div>
-                        {includeTuitionFee && (
-                          <div className="row g-3">
-                            <div className="col-md-6">
-                                <label className="form-label fw-bold small text-muted">Tuition Amount</label>
-                                <input 
-                                    type="number" 
-                                    className="form-control" 
-                                    value={tuitionAmount}
-                                    onChange={(e) => setTuitionAmount(e.target.value)}
-                                />
-                            </div>
-                            <div className="col-md-6">
-                                <label className="form-label fw-bold small text-muted">Tuition Received</label>
-                                <input 
-                                    type="number" 
-                                    className="form-control text-success fw-bold" 
-                                    value={tuitionReceived}
-                                    onChange={(e) => setTuitionReceived(e.target.value)}
-                                />
-                            </div>
-                            <div className="col-12">
-                                <small className="text-secondary"><i className="bi bi-info-circle me-1"></i>This will be saved directly into the Monthly Fee Records seamlessly.</small>
-                            </div>
+                      <div className="form-check form-switch mb-3">
+                        <input
+                          className="form-check-input"
+                          type="checkbox"
+                          id="includeTuitionToggle"
+                          checked={includeTuitionFee}
+                          onChange={(e) => setIncludeTuitionFee(e.target.checked)}
+                        />
+                        <label className="form-check-label fw-bold text-primary ms-2" htmlFor="includeTuitionToggle">
+                          Receive Current Month Tuition Fee Too?
+                        </label>
+                      </div>
+                      {includeTuitionFee && (
+                        <div className="row g-3">
+                          <div className="col-md-6">
+                            <label className="form-label fw-bold small text-muted">Tuition Amount</label>
+                            <input
+                              type="number"
+                              className="form-control"
+                              onKeyDown={e => ['e', 'E', '+', '-'].includes(e.key) && e.preventDefault()}
+                              value={tuitionAmount}
+                              onChange={(e) => setTuitionAmount(e.target.value)}
+                            />
                           </div>
-                        )}
-                      </div>                    <div className="col-6">
+                          <div className="col-md-6">
+                            <label className="form-label fw-bold small text-muted">Tuition Received</label>
+                            <input
+                              type="number"
+                              className="form-control text-success fw-bold"
+                              onKeyDown={e => ['e', 'E', '+', '-'].includes(e.key) && e.preventDefault()}
+                              value={tuitionReceived}
+                              onChange={(e) => setTuitionReceived(e.target.value)}
+                            />
+                          </div>
+                          <div className="col-12">
+                            <small className="text-secondary"><i className="bi bi-info-circle me-1"></i>This will be saved directly into the Monthly Fee Records seamlessly.</small>
+                          </div>
+                        </div>
+                      )}
+                    </div>                    <div className="col-6">
                       <label className="form-label fw-bold small text-muted">
                         Payment Method
                       </label>

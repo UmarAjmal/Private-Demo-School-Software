@@ -30,7 +30,7 @@ export default function ExpenseCategoriesPage() {
 
     const fetchCategories = async () => {
         try {
-            const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "https://shmool.onrender.com"}` + '/expense-categories');
+            const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "https://shmool.onrender.com"}/expense-categories`);
             const data = await response.json();
             setCategories(data);
             setLoading(false);
@@ -47,7 +47,7 @@ export default function ExpenseCategoriesPage() {
         try {
             const url = editMode
                 ? `${process.env.NEXT_PUBLIC_API_URL || "https://shmool.onrender.com"}/expense-categories/${currentCategory.category_id}`
-                : `${process.env.NEXT_PUBLIC_API_URL || "https://shmool.onrender.com"}` + '/expense-categories';
+                : `${process.env.NEXT_PUBLIC_API_URL || "https://shmool.onrender.com"}/expense-categories`;
 
             const method = editMode ? 'PUT' : 'POST';
 

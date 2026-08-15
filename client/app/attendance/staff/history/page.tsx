@@ -40,7 +40,7 @@ export default function StaffAttendanceHistoryPage() {
     const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 
     useEffect(() => {
-        fetch(`${process.env.NEXT_PUBLIC_API_URL || "https://shmool.onrender.com"}` + '/hrm/departments').then(r => r.json()).then(setDepartments).catch(() => { });
+        fetch(`${process.env.NEXT_PUBLIC_API_URL || "https://shmool.onrender.com"}/hrm/departments`).then(r => r.json()).then(setDepartments).catch(() => { });
     }, []);
 
     const showToast = (type: 'success' | 'danger', msg: string) => { setToast({ type, msg }); setTimeout(() => setToast(null), 4000); };

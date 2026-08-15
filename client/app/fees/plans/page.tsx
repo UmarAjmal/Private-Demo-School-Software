@@ -63,7 +63,7 @@ export default function FeePlansPage() {
 
     const fetchPlans = async () => {
         try {
-            const r = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "https://shmool.onrender.com"}` + '/fee-plans');
+            const r = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "https://shmool.onrender.com"}/fee-plans`);
             const data = await r.json();
             setPlans(Array.isArray(data) ? data : []);
         } catch { } finally { setLoading(false); }
@@ -71,14 +71,14 @@ export default function FeePlansPage() {
 
     const fetchHeads = async () => {
         try {
-            const r = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "https://shmool.onrender.com"}` + '/fee-heads/active');
+            const r = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "https://shmool.onrender.com"}/fee-heads/active`);
             setAllHeads(await r.json());
         } catch { }
     };
 
     const fetchClasses = async () => {
         try {
-            const r = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "https://shmool.onrender.com"}` + '/academic');
+            const r = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "https://shmool.onrender.com"}/academic`);
             setClasses(await r.json());
         } catch { }
     };
@@ -125,7 +125,7 @@ export default function FeePlansPage() {
 
     const isTuitionHead = (name: string) => name.toLowerCase().includes('tuition');
     const isOpbHead = (type: string) => type === 'prev_balance';
-    // Tuition (per-student) and Previous Balance (per-family) amounts are auto — exclude from plan fixed total
+    // Tuition (per-student) and Previous Balance (per-family) amounts are auto exclude from plan fixed total
     const totalAmount = form.heads
         .filter(h => !isTuitionHead(h.head_name) && !isOpbHead(h.head_type))
         .reduce((s, h) => s + (parseFloat(h.amount) || 0), 0);
@@ -137,7 +137,7 @@ export default function FeePlansPage() {
             return;
         }
         try {
-            const url = editMode ? `${process.env.NEXT_PUBLIC_API_URL || "https://shmool.onrender.com"}/fee-plans/${editId}` : `${process.env.NEXT_PUBLIC_API_URL || "https://shmool.onrender.com"}` + '/fee-plans';
+            const url = editMode ? `${process.env.NEXT_PUBLIC_API_URL || "https://shmool.onrender.com"}/fee-plans/${editId}` : `${process.env.NEXT_PUBLIC_API_URL || "https://shmool.onrender.com"}/fee-plans`;
             const method = editMode ? 'PUT' : 'POST';
             const res = await fetch(url, {
                 method, headers: { 'Content-Type': 'application/json' },
@@ -385,8 +385,8 @@ export default function FeePlansPage() {
                                                                         <input type="checkbox" className="form-check-input mt-0" readOnly checked={!!sel} />
                                                                         <span className="fw-bold small">{head.head_name}</span>
                                                                         <span className={`badge rounded-pill ms-auto ${head.head_type === 'regular' ? 'bg-info text-dark' :
-                                                                                head.head_type === 'prev_balance' ? 'text-white' :
-                                                                                    'bg-warning text-dark'}`}
+                                                                            head.head_type === 'prev_balance' ? 'text-white' :
+                                                                                'bg-warning text-dark'}`}
                                                                             style={head.head_type === 'prev_balance' ? { background: '#6f42c1' } : {}}>
                                                                             {head.head_type === 'prev_balance' ? 'Prev. Balance' : head.head_type}
                                                                         </span>
@@ -412,6 +412,7 @@ export default function FeePlansPage() {
                                                                             <div className="input-group input-group-sm">
                                                                                 <span className="input-group-text bg-light">PKR</span>
                                                                                 <input type="number" className="form-control" value={sel.amount} min="0"
+                                                                                    onKeyDown={e => ['e', 'E', '+', '-'].includes(e.key) && e.preventDefault()}
                                                                                     onChange={e => updateHeadAmount(head.head_id, e.target.value)}
                                                                                     placeholder="0.00" onClick={e => e.stopPropagation()} />
                                                                             </div>

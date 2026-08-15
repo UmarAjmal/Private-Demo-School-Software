@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { showToast } from '@/utils/toastHelper';
 
-const API = `${process.env.NEXT_PUBLIC_API_URL || "https://shmool.onrender.com"}`;
+const API = process.env.NEXT_PUBLIC_API_URL || "https://demo-school-soxa.onrender.com";
 
 export default function GeneralSettings() {
     const [settings, setSettings] = useState({
@@ -31,8 +31,15 @@ export default function GeneralSettings() {
         fetch(`${API}/settings`)
             .then(res => res.json())
             .then(data => {
-                if (data && data.school_name) setSettings(data);
-                if (data && data.logo_url) setLogoPreview(`${API}${data.logo_url}`);
+                if (data && typeof data === 'object') {
+                    setSettings(prev => ({ ...prev, ...data }));
+                    if (data.logo_url) {
+                        const src = data.logo_url.startsWith('data:') || data.logo_url.startsWith('http')
+                            ? data.logo_url
+                            : `${API}${data.logo_url}?t=${Date.now()}`;
+                        setLogoPreview(src);
+                    }
+                }
                 setLoading(false);
             })
             .catch(err => {
@@ -45,24 +52,77 @@ export default function GeneralSettings() {
         setSettings({ ...settings, [e.target.name]: e.target.value });
     };
 
+    const compressLogoImage = (file: File): Promise<string> => {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                const img = new Image();
+                img.onload = () => {
+                    const maxDim = 800; // 800px max dimension is more than enough for crisp logos on PDF/screens
+                    let width = img.width;
+                    let height = img.height;
+
+                    if (width > maxDim || height > maxDim) {
+                        if (width > height) {
+                            height = Math.round((height * maxDim) / width);
+                            width = maxDim;
+                        } else {
+                            width = Math.round((width * maxDim) / height);
+                            height = maxDim;
+                        }
+                    }
+
+                    const canvas = document.createElement('canvas');
+                    canvas.width = width;
+                    canvas.height = height;
+
+                    const ctx = canvas.getContext('2d');
+                    if (!ctx) {
+                        resolve(e.target?.result as string);
+                        return;
+                    }
+
+                    ctx.drawImage(img, 0, 0, width, height);
+
+                    const isPng = file.type === 'image/png' || file.type === 'image/webp' || file.type === 'image/svg+xml';
+                    const outputFormat = isPng ? 'image/png' : 'image/jpeg';
+                    resolve(canvas.toDataURL(outputFormat, 0.92));
+                };
+                img.onerror = () => resolve(e.target?.result as string);
+                img.src = e.target?.result as string;
+            };
+            reader.onerror = () => reject(new Error('Failed to read file'));
+            reader.readAsDataURL(file);
+        });
+    };
+
     const handleLogoChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
         if (!file) return;
 
-        const reader = new FileReader();
-        reader.onload = (ev) => setLogoPreview(ev.target?.result as string);
-        reader.readAsDataURL(file);
+        if (file.size > 20 * 1024 * 1024) {
+            showToast.error('File size exceeds the 20 MB limit.');
+            return;
+        }
 
         setUploadingLogo(true);
         try {
-            const formData = new FormData();
-            formData.append('logo', file);
-            const res = await fetch(`${API}/settings/logo`, { method: 'POST', body: formData });
+            const base64Data = await compressLogoImage(file);
+            setLogoPreview(base64Data);
+
+            const res = await fetch(`${API}/settings/logo`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ logo_data: base64Data })
+            });
+
             const data = await res.json();
             if (!res.ok) throw new Error(data.error || 'Upload failed');
-            setSettings(prev => ({ ...prev, logo_url: data.logo_url }));
-            setLogoPreview(`${API}${data.logo_url}?t=${Date.now()}`);
-            showToast.success('Logo uploaded successfully!');
+            
+            const savedLogo = data.logo_url || base64Data;
+            setSettings(prev => ({ ...prev, logo_url: savedLogo }));
+            setLogoPreview(savedLogo);
+            showToast.success('Logo uploaded and saved successfully!');
         } catch (err: any) {
             showToast.error(err.message || 'Logo upload failed.');
         } finally {
@@ -73,7 +133,6 @@ export default function GeneralSettings() {
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         setSaving(true);
-        await new Promise(r => setTimeout(r, 400));
         try {
             const res = await fetch(`${API}/settings`, {
                 method: 'PUT',
@@ -83,7 +142,15 @@ export default function GeneralSettings() {
             if (res.ok) {
                 showToast.success('Configuration saved successfully!');
                 const data = await res.json();
-                setSettings(data);
+                setSettings(prev => ({ ...prev, ...data }));
+                if (data.logo_url) {
+                    const src = data.logo_url.startsWith('data:') || data.logo_url.startsWith('http')
+                        ? data.logo_url
+                        : `${API}${data.logo_url}?t=${Date.now()}`;
+                    setLogoPreview(src);
+                } else {
+                    setLogoPreview('');
+                }
             } else {
                 showToast.error('Failed to update settings.');
             }
@@ -134,7 +201,7 @@ export default function GeneralSettings() {
                             </div>
                             <div>
                                 <p style={{ color: 'var(--text-gray-medium)', fontSize: '0.9rem', marginBottom: 10 }}>
-                                    Upload a PNG, JPG or SVG. Max 2&nbsp;MB.<br />
+                                    Upload a PNG, JPG, WEBP or SVG. Max 20&nbsp;MB.<br />
                                     This logo will appear on Result Cards and Marks Sheets.
                                 </p>
                                 <input

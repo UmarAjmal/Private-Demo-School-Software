@@ -40,14 +40,14 @@ export default function SectionSettings() {
 
     const fetchClasses = async () => {
         try {
-            const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "https://shmool.onrender.com"}` + '/academic');
+            const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "https://shmool.onrender.com"}/academic`);
             if (res.ok) setClasses(await res.json());
         } catch (e) { console.error(e); }
     };
 
     const fetchSections = async () => {
         try {
-            const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "https://shmool.onrender.com"}` + '/academic/sections');
+            const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "https://shmool.onrender.com"}/academic/sections`);
             if (res.ok) setSections(await res.json());
         } catch (e) { console.error(e); }
     };
@@ -55,7 +55,7 @@ export default function SectionSettings() {
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
 
-        const url = editMode ? `${process.env.NEXT_PUBLIC_API_URL || "https://shmool.onrender.com"}/academic/sections/${selectedId}` : `${process.env.NEXT_PUBLIC_API_URL || "https://shmool.onrender.com"}` + '/academic/sections';
+        const url = editMode ? `${process.env.NEXT_PUBLIC_API_URL || "https://shmool.onrender.com"}/academic/sections/${selectedId}` : `${process.env.NEXT_PUBLIC_API_URL || "https://shmool.onrender.com"}/academic/sections`;
         const method = editMode ? 'PUT' : 'POST';
 
         const toastId = toast.loading("Processing...");
