@@ -59,6 +59,8 @@ app.use('/exams', require('./routes/exams'));
 app.use('/reports', require('./routes/reports'));
 // Notifications Module Route
 app.use('/notifications', require('./routes/notifications'));
+// Academic Content Studio & Google Workspace Routes
+app.use('/academic-studio', require('./routes/academic-studio'));
 
 app.get('/', (req, res) => {
     res.send('Smart School System API is running');

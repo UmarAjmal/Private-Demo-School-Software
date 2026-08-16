@@ -93,7 +93,15 @@ const NAV_GROUPS: NavGroup[] = [
   },
   {
     key: 'academic', label: 'Academic', icon: 'bi-mortarboard-fill', href: '/academic/classes', permission: 'academic',
-    subs: [{ label: 'Class Setting', href: '/academic/classes' }, { label: 'Section Setting', href: '/academic/sections' }, { label: 'Subject Setting', href: '/academic/subjects' }, { label: 'Teacher Assign', href: '/academic/teachers' }, { label: 'Student Promotion', href: '/academic/promotion' }]
+    subs: [
+      { label: '🎨 Academic Studio', href: '/academic/studio' },
+      { label: '📋 Document Approvals', href: '/academic/approvals' },
+      { label: 'Class Setting', href: '/academic/classes' },
+      { label: 'Section Setting', href: '/academic/sections' },
+      { label: 'Subject Setting', href: '/academic/subjects' },
+      { label: 'Teacher Assign', href: '/academic/teachers' },
+      { label: 'Student Promotion', href: '/academic/promotion' }
+    ]
   },
   {
     key: 'hrm', label: 'HR Management', icon: 'bi-person-badge-fill', href: '/hrm', permission: 'hrm',
@@ -130,6 +138,8 @@ const NAV_PERMISSION_MAP: Record<string, string> = {
   '/students/import': 'students.import',
   '/students/details': 'students.details',
   '/students/families': 'students.families',
+  '/academic/studio': 'academic',
+  '/academic/approvals': 'academic',
   '/academic/classes': 'academic.classes',
   '/academic/sections': 'academic.sections',
   '/academic/subjects': 'academic.subjects',

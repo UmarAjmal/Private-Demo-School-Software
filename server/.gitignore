@@ -7,3 +7,7 @@ temp/
 *.sql
 .DS_Store
 *.log
+google-service-account.json
+*smart-school-*.json
+*google*.json
+credentials.json

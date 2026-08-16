@@ -272,6 +272,77 @@ async function runEssentialMigrations() {
             CREATE INDEX IF NOT EXISTS idx_notifications_user ON notifications(user_id);
             CREATE INDEX IF NOT EXISTS idx_notifications_role ON notifications(role);
             CREATE INDEX IF NOT EXISTS idx_notifications_read ON notifications(is_read);
+
+            -- 10. Google Workspace Integration & Academic Content Studio Tables
+            CREATE TABLE IF NOT EXISTS academic_templates (
+                id SERIAL PRIMARY KEY,
+                title VARCHAR(255) NOT NULL,
+                template_type VARCHAR(50) NOT NULL DEFAULT 'doc',
+                category VARCHAR(50) NOT NULL,
+                description TEXT,
+                icon VARCHAR(100) DEFAULT 'bi-file-earmark-text',
+                default_structure JSONB DEFAULT '{}',
+                is_active BOOLEAN DEFAULT TRUE,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+
+            CREATE TABLE IF NOT EXISTS academic_documents (
+                id SERIAL PRIMARY KEY,
+                title VARCHAR(255) NOT NULL,
+                category VARCHAR(50) NOT NULL,
+                template_type VARCHAR(50) NOT NULL DEFAULT 'doc',
+                class_id INT REFERENCES classes(class_id) ON DELETE SET NULL,
+                subject_id INT REFERENCES subjects(subject_id) ON DELETE SET NULL,
+                academic_year_id INT REFERENCES academic_years(id) ON DELETE SET NULL,
+                term_id INT REFERENCES academic_terms(id) ON DELETE SET NULL,
+                created_by_teacher_id INT REFERENCES app_users(id) ON DELETE SET NULL,
+                
+                google_file_id VARCHAR(255) UNIQUE,
+                google_webview_link TEXT,
+                google_embed_link TEXT,
+                google_folder_id VARCHAR(255),
+                final_pdf_path TEXT,
+                
+                status VARCHAR(50) NOT NULL DEFAULT 'draft',
+                current_reviewer_role VARCHAR(50) DEFAULT 'Coordinator',
+                current_reviewer_id INT REFERENCES app_users(id) ON DELETE SET NULL,
+                
+                total_marks INT DEFAULT 0,
+                scheduled_date DATE,
+                instructions TEXT,
+                is_published_to_students BOOLEAN DEFAULT FALSE,
+                published_at TIMESTAMP,
+                
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE INDEX IF NOT EXISTS idx_acad_docs_class ON academic_documents(class_id);
+            CREATE INDEX IF NOT EXISTS idx_acad_docs_subject ON academic_documents(subject_id);
+            CREATE INDEX IF NOT EXISTS idx_acad_docs_status ON academic_documents(status);
+            CREATE INDEX IF NOT EXISTS idx_acad_docs_teacher ON academic_documents(created_by_teacher_id);
+            CREATE INDEX IF NOT EXISTS idx_acad_docs_published ON academic_documents(is_published_to_students);
+
+            CREATE TABLE IF NOT EXISTS academic_document_approvals (
+                id SERIAL PRIMARY KEY,
+                document_id INT NOT NULL REFERENCES academic_documents(id) ON DELETE CASCADE,
+                reviewer_user_id INT REFERENCES app_users(id) ON DELETE SET NULL,
+                reviewer_role VARCHAR(50) NOT NULL,
+                action VARCHAR(50) NOT NULL,
+                remarks TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE INDEX IF NOT EXISTS idx_acad_doc_approvals ON academic_document_approvals(document_id);
+
+            -- Seed Standard Default Templates
+            INSERT INTO academic_templates (title, template_type, category, description, icon)
+            VALUES 
+                ('Official Mid-Term Examination Paper', 'doc', 'exam', 'Standard 50/100 marks exam paper with school header, instructions, and marks breakdown table.', 'bi-file-earmark-ruled'),
+                ('Weekly / Monthly Class Test', 'doc', 'test', 'Quick 20/25 marks assessment test with objective & subjective sections.', 'bi-journal-check'),
+                ('Comprehensive Summer Vacation Homework Pack', 'doc', 'summer_pack', 'Multi-week activity-based summer vacation assignment pack for students.', 'bi-sun-fill'),
+                ('Subject Lecture Notes & Chapter Summary', 'doc', 'notes', 'Classroom notes, key concepts, formulas, and homework questions.', 'bi-book-half'),
+                ('Interactive Classroom Lecture Slides', 'slide', 'presentation', '16:9 presentation slide deck with topic breakdown, visuals, and quizzes.', 'bi-easel2-fill'),
+                ('Class Assessment & Grade Tracker', 'sheet', 'marksheet', 'Automated grading spreadsheet with total, average, and grade curves.', 'bi-table')
+            ON CONFLICT DO NOTHING;
         `);
 
         const { syncAllSequences } = require('./utils/sequenceSync');

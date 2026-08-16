@@ -14,3 +14,7 @@ build/
 out/
 .vercel
 .vscode/
+google-service-account.json
+*smart-school-*.json
+*google*.json
+credentials.json

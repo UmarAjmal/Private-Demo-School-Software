@@ -57,6 +57,23 @@ export default function StudentProfile({ params }: { params: { id: string } }) {
     const [loadingFamilySlips, setLoadingFamilySlips] = useState(false);
     const [admissionPayments, setAdmissionPayments] = useState<any[]>([]);
     const [loadingFees, setLoadingFees] = useState(false);
+
+    // Google Workspace Study Materials
+    const [studyMaterials, setStudyMaterials] = useState<any[]>([]);
+    const [loadingMaterials, setLoadingMaterials] = useState(false);
+    const [materialFilter, setMaterialFilter] = useState('all');
+
+    const fetchStudyMaterials = async (classId?: string | number) => {
+        if (!classId) return;
+        setLoadingMaterials(true);
+        try {
+            const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "https://shmool.onrender.com"}/academic-studio/student-materials?class_id=${classId}`);
+            if (res.ok) {
+                setStudyMaterials(await res.json());
+            }
+        } catch { }
+        finally { setLoadingMaterials(false); }
+    };
     const [showPayModal, setShowPayModal] = useState(false);
     const [payAmt, setPayAmt] = useState('');
     const [payMethod, setPayMethod] = useState('cash');
@@ -88,7 +105,9 @@ export default function StudentProfile({ params }: { params: { id: string } }) {
                 const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "https://shmool.onrender.com"}/students/${params.id}`);
                 if (res.ok) {
                     const data = await res.json();
-                    setStudent(data.rows ? data.rows[0] : (Array.isArray(data) ? data[0] : data));
+                    const s = data.rows ? data.rows[0] : (Array.isArray(data) ? data[0] : data);
+                    setStudent(s);
+                    if (s?.class_id) fetchStudyMaterials(s.class_id);
                 }
             } catch (err) {
                 console.error(err);
@@ -1663,24 +1682,132 @@ export default function StudentProfile({ params }: { params: { id: string } }) {
 
                                 {activeTab === 'documents' && (
                                     <div className="animate__animated animate__fadeIn">
-                                        <div className="row g-3">
-                                            {student.documents && (JSON.parse(student.documents).map((doc: string, i: number) => (
-                                                <div className="col-md-4" key={i}>
-                                                    <div className="card h-100 border-0 shadow-sm hover-shadow transition">
-                                                        <div className="card-body text-center p-4">
-                                                            <i className="bi bi-file-earmark-pdf fs-1 text-danger mb-3"></i>
-                                                            <h6 className="text-truncate">Document {i + 1}</h6>
-                                                            <a href={`${process.env.NEXT_PUBLIC_API_URL || "https://shmool.onrender.com"}/${doc}`} target="_blank" className="btn btn-sm btn-outline-primary mt-2">View</a>
+                                        {/* SECTION 1: Google Workspace Academic Study Materials */}
+                                        <div className="card border-0 shadow-sm rounded-4 mb-4 bg-white overflow-hidden">
+                                            <div className="card-header p-3.5 text-white" style={{ background: 'linear-gradient(135deg, var(--primary-dark, #195053) 0%, #233D4D 100%)' }}>
+                                                <div className="d-flex flex-column flex-md-row justify-content-between align-items-start align-items-md-center gap-2">
+                                                    <div>
+                                                        <h6 className="fw-bold mb-0 text-white">
+                                                            <i className="bi bi-book-half me-2 text-warning"></i>Academic Study Materials & Homework Packs
+                                                        </h6>
+                                                        <div className="small text-white-50 mt-0.5">
+                                                            Published notes, summer vacation packs, and classroom presentations for this class.
                                                         </div>
                                                     </div>
+                                                    {/* Filter badges */}
+                                                    <div className="d-flex gap-1.5 flex-wrap">
+                                                        {[
+                                                            { id: 'all', label: 'All' },
+                                                            { id: 'summer_pack', label: 'Summer Packs' },
+                                                            { id: 'notes', label: 'Lecture Notes' },
+                                                            { id: 'presentation', label: 'Slides' }
+                                                        ].map(f => (
+                                                            <button
+                                                                key={f.id}
+                                                                onClick={() => setMaterialFilter(f.id)}
+                                                                className={`btn btn-sm rounded-pill px-2.5 py-1 fw-bold border-0 ${materialFilter === f.id ? 'bg-warning text-dark' : 'bg-white bg-opacity-10 text-white'}`}
+                                                                style={{ fontSize: '0.75rem' }}
+                                                            >
+                                                                {f.label}
+                                                            </button>
+                                                        ))}
+                                                    </div>
                                                 </div>
-                                            )))}
-                                            {(!student.documents || JSON.parse(student.documents).length === 0) && (
-                                                <div className="text-center p-5 text-muted">
-                                                    <i className="bi bi-folder-x fs-1 opacity-50"></i>
-                                                    <p className="mt-2">No documents uploaded</p>
+                                            </div>
+
+                                            <div className="card-body p-4 bg-light bg-opacity-25">
+                                                {loadingMaterials ? (
+                                                    <div className="text-center py-4">
+                                                        <span className="spinner-border spinner-border-sm text-primary me-2"></span>
+                                                        <span className="text-muted small">Loading study materials...</span>
+                                                    </div>
+                                                ) : studyMaterials.length === 0 ? (
+                                                    <div className="text-center py-4 text-muted">
+                                                        <i className="bi bi-journal-x fs-2 opacity-50 mb-1 d-block"></i>
+                                                        <div className="small fw-semibold">No study materials published yet for this student's class.</div>
+                                                    </div>
+                                                ) : (
+                                                    <div className="row g-3">
+                                                        {studyMaterials
+                                                            .filter(m => materialFilter === 'all' || m.category === materialFilter)
+                                                            .map((mat: any) => (
+                                                                <div className="col-md-6 col-xl-4" key={mat.id}>
+                                                                    <div className="card border-0 shadow-sm rounded-4 h-100 bg-white hover-shadow transition">
+                                                                        <div className="card-body p-3.5 d-flex flex-column justify-content-between">
+                                                                            <div>
+                                                                                <div className="d-flex justify-content-between align-items-center mb-2">
+                                                                                    <span className={`badge rounded-pill px-2.5 py-1 ${mat.category === 'summer_pack' ? 'bg-warning bg-opacity-10 text-warning border border-warning' : mat.category === 'presentation' ? 'bg-info bg-opacity-10 text-info border border-info' : 'bg-success bg-opacity-10 text-success border border-success'}`} style={{ fontSize: '0.7rem' }}>
+                                                                                        {mat.category === 'summer_pack' ? '☀️ Summer Pack' : mat.category === 'presentation' ? '📽️ Presentation' : '📖 Notes & Guide'}
+                                                                                    </span>
+                                                                                    <span className="text-muted" style={{ fontSize: '0.72rem' }}>
+                                                                                        {mat.subject_name || 'General'}
+                                                                                    </span>
+                                                                                </div>
+                                                                                <h6 className="fw-bold text-dark mb-1.5 text-truncate" title={mat.title}>{mat.title}</h6>
+                                                                                <div className="text-muted small mb-3">
+                                                                                    <i className="bi bi-person me-1"></i>{mat.teacher_name || 'Teacher'}
+                                                                                </div>
+                                                                            </div>
+                                                                            <div className="d-flex gap-2 border-top pt-2.5">
+                                                                                {mat.google_webview_link && (
+                                                                                    <a
+                                                                                        href={mat.google_webview_link}
+                                                                                        target="_blank"
+                                                                                        rel="noopener noreferrer"
+                                                                                        className="btn btn-sm btn-outline-primary rounded-pill flex-grow-1 fw-semibold d-inline-flex align-items-center justify-content-center gap-1"
+                                                                                        style={{ fontSize: '0.78rem' }}
+                                                                                    >
+                                                                                        <i className="bi bi-google"></i> Read Online
+                                                                                    </a>
+                                                                                )}
+                                                                                <a
+                                                                                    href={`${process.env.NEXT_PUBLIC_API_URL || "https://shmool.onrender.com"}/academic-studio/documents/${mat.id}/export-pdf`}
+                                                                                    target="_blank"
+                                                                                    className="btn btn-sm btn-primary-custom rounded-pill px-3 fw-semibold d-inline-flex align-items-center justify-content-center gap-1"
+                                                                                    style={{ fontSize: '0.78rem' }}
+                                                                                >
+                                                                                    <i className="bi bi-download"></i> PDF
+                                                                                </a>
+                                                                            </div>
+                                                                        </div>
+                                                                    </div>
+                                                                </div>
+                                                            ))}
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </div>
+
+                                        {/* SECTION 2: Personal Admission Documents */}
+                                        <div className="card border-0 shadow-sm rounded-4 bg-white overflow-hidden">
+                                            <div className="card-header bg-white py-3 border-bottom">
+                                                <h6 className="fw-bold mb-0 text-dark">
+                                                    <i className="bi bi-folder2-open me-2 text-primary"></i>Personal & Admission Documents
+                                                </h6>
+                                            </div>
+                                            <div className="card-body p-4">
+                                                <div className="row g-3">
+                                                    {student.documents && (JSON.parse(student.documents).map((doc: string, i: number) => (
+                                                        <div className="col-md-4" key={i}>
+                                                            <div className="card h-100 border-0 shadow-sm hover-shadow transition bg-light">
+                                                                <div className="card-body text-center p-3.5">
+                                                                    <i className="bi bi-file-earmark-pdf fs-1 text-danger mb-2"></i>
+                                                                    <h6 className="text-truncate small fw-bold">Admission Attachment #{i + 1}</h6>
+                                                                    <a href={`${process.env.NEXT_PUBLIC_API_URL || "https://shmool.onrender.com"}/${doc}`} target="_blank" className="btn btn-sm btn-outline-primary rounded-pill mt-2 px-3">
+                                                                        <i className="bi bi-eye me-1"></i> View Document
+                                                                    </a>
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                    )))}
+                                                    {(!student.documents || JSON.parse(student.documents).length === 0) && (
+                                                        <div className="text-center py-4 text-muted">
+                                                            <i className="bi bi-file-earmark-x fs-2 opacity-50 mb-1 d-block"></i>
+                                                            <p className="small mb-0">No personal verification documents attached during admission.</p>
+                                                        </div>
+                                                    )}
                                                 </div>
-                                            )}
+                                            </div>
                                         </div>
                                     </div>
                                 )}
