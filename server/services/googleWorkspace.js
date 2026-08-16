@@ -24,35 +24,77 @@ let sheetsClient = null;
 function getAuth() {
     if (authClient) return authClient;
 
-    // 1. Check if JSON string is provided directly via environment variables (ideal for Render / Cloud deployments)
-    if (process.env.GOOGLE_SERVICE_ACCOUNT_KEY_JSON) {
+    // 1. Check multiple possible environment variable names for the service account key
+    const rawEnvJson = process.env.GOOGLE_SERVICE_ACCOUNT_KEY_JSON 
+        || process.env.GOOGLE_SERVICE_ACCOUNT_JSON 
+        || process.env.GOOGLE_CREDENTIALS
+        || process.env.GOOGLE_SERVICE_ACCOUNT_KEY;
+
+    if (rawEnvJson) {
         try {
-            let jsonStr = process.env.GOOGLE_SERVICE_ACCOUNT_KEY_JSON.trim();
-            // Handle optional base64 encoded string
+            let jsonStr = rawEnvJson.trim();
+
+            // Strip surrounding single or double quotes if Render/User wrapped the whole JSON in quotes
+            if ((jsonStr.startsWith('"') && jsonStr.endsWith('"')) || (jsonStr.startsWith("'") && jsonStr.endsWith("'"))) {
+                jsonStr = jsonStr.slice(1, -1).trim();
+            }
+
+            // Handle base64 encoded string
             if (jsonStr.startsWith('ey') && !jsonStr.startsWith('{')) {
                 jsonStr = Buffer.from(jsonStr, 'base64').toString('utf-8');
             }
-            const credentials = JSON.parse(jsonStr);
+
+            let credentials = JSON.parse(jsonStr);
+            // Handle double-stringified JSON
+            if (typeof credentials === 'string') {
+                credentials = JSON.parse(credentials);
+            }
+
+            // Ensure private_key has correct real newlines
+            if (credentials.private_key && credentials.private_key.includes('\\n')) {
+                credentials.private_key = credentials.private_key.replace(/\\n/g, '\n');
+            }
+
             authClient = new google.auth.GoogleAuth({
                 credentials,
                 scopes: SCOPES
             });
+            console.log(`[Google Workspace] Authenticated successfully via environment variable credentials (${credentials.client_email})`);
             return authClient;
         } catch (e) {
-            console.error('Failed to parse GOOGLE_SERVICE_ACCOUNT_KEY_JSON:', e.message);
+            console.error('[Google Workspace] Error parsing environment variable credentials JSON:', e.message);
         }
     }
 
-    // 2. Fallback to local JSON key file
+    // 2. Check direct client_email and private_key environment variables
+    if (process.env.GOOGLE_CLIENT_EMAIL && process.env.GOOGLE_PRIVATE_KEY) {
+        try {
+            const privateKey = process.env.GOOGLE_PRIVATE_KEY.replace(/\\n/g, '\n');
+            authClient = new google.auth.GoogleAuth({
+                credentials: {
+                    client_email: process.env.GOOGLE_CLIENT_EMAIL,
+                    private_key: privateKey
+                },
+                scopes: SCOPES
+            });
+            console.log(`[Google Workspace] Authenticated successfully via GOOGLE_CLIENT_EMAIL / GOOGLE_PRIVATE_KEY`);
+            return authClient;
+        } catch (e) {
+            console.error('[Google Workspace] Error authenticating with direct keys:', e.message);
+        }
+    }
+
+    // 3. Fallback to local JSON key file
     if (fs.existsSync(KEY_FILE_PATH)) {
         authClient = new google.auth.GoogleAuth({
             keyFile: KEY_FILE_PATH,
             scopes: SCOPES
         });
+        console.log(`[Google Workspace] Authenticated successfully via local file: ${KEY_FILE_PATH}`);
         return authClient;
     }
 
-    throw new Error(`Google Service Account credentials not found. On Render/Production, please set GOOGLE_SERVICE_ACCOUNT_KEY_JSON in environment variables. Locally, place google-service-account.json in server root.`);
+    throw new Error(`Google Service Account credentials not found. On Render, please add GOOGLE_SERVICE_ACCOUNT_KEY_JSON to Environment Variables. Checked env vars: GOOGLE_SERVICE_ACCOUNT_KEY_JSON, GOOGLE_SERVICE_ACCOUNT_JSON, GOOGLE_CREDENTIALS. Local file check: ${KEY_FILE_PATH}`);
 }
 
 function getDrive() {

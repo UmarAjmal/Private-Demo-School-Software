@@ -49,7 +49,7 @@ export default function AcademicStudioPage() {
             const [docsRes, clsRes, secRes, sbRes, yrRes] = await Promise.all([
                 fetch(`${API_URL}/academic-studio/documents`),
                 fetch(`${API_URL}/academic/classes`),
-                fetch(`${API_URL}/academic/classes/sections`),
+                fetch(`${API_URL}/academic/sections`),
                 fetch(`${API_URL}/academic/subjects`),
                 fetch(`${API_URL}/academic/years`)
             ]);

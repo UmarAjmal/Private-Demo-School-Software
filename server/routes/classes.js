@@ -75,8 +75,8 @@ router.delete('/:id', async (req, res) => {
 // SECTIONS API
 // ==========================================
 
-// List Sections (Grouped logic handled in frontend or JSON agg here)
-router.get('/sections', async (req, res) => {
+// List Sections
+router.get(['/sections', '/classes/sections'], async (req, res) => {
     try {
         // Return flat list with class info, easier to tree-ify in frontend or use JSON_AGG
         // Let's use JSON_AGG to return hierarchical structure directly? 
