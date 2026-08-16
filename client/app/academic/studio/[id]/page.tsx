@@ -67,28 +67,28 @@ export default function DocumentEditorStudioPage() {
     const getStatusHeaderBadge = (status: string) => {
         switch (status) {
             case 'draft':
-                return <span className="badge bg-secondary text-white px-3 py-1.5 rounded-pill"><i className="bi bi-pencil me-1"></i> Draft (Editable)</span>;
+                return <span className="badge bg-secondary bg-opacity-10 text-secondary border border-secondary px-2.5 py-1" style={{ borderRadius: '10px', fontSize: '0.72rem', fontWeight: 500 }}><i className="bi bi-pencil me-1"></i> Draft (Editable)</span>;
             case 'pending_coordinator':
-                return <span className="badge bg-warning text-dark px-3 py-1.5 rounded-pill"><i className="bi bi-clock-history me-1"></i> Under Coordinator Review (Locked)</span>;
+                return <span className="badge bg-warning bg-opacity-10 text-warning border border-warning px-2.5 py-1" style={{ borderRadius: '10px', fontSize: '0.72rem', fontWeight: 500 }}><i className="bi bi-clock-history me-1"></i> Coordinator Review</span>;
             case 'pending_vp':
-                return <span className="badge bg-info text-dark px-3 py-1.5 rounded-pill"><i className="bi bi-eye me-1"></i> Under Vice Principal Review</span>;
+                return <span className="badge bg-info bg-opacity-10 text-info border border-info px-2.5 py-1" style={{ borderRadius: '10px', fontSize: '0.72rem', fontWeight: 500 }}><i className="bi bi-eye me-1"></i> VP Review</span>;
             case 'pending_principal':
-                return <span className="badge bg-primary text-white px-3 py-1.5 rounded-pill"><i className="bi bi-shield-check me-1"></i> Awaiting Principal Final Approval</span>;
+                return <span className="badge bg-primary bg-opacity-10 text-primary border border-primary px-2.5 py-1" style={{ borderRadius: '10px', fontSize: '0.72rem', fontWeight: 500 }}><i className="bi bi-shield-check me-1"></i> Principal Review</span>;
             case 'approved':
-                return <span className="badge bg-success text-white px-3 py-1.5 rounded-pill"><i className="bi bi-check2-all me-1"></i> Approved & Finalized</span>;
+                return <span className="badge bg-success bg-opacity-10 text-success border border-success px-2.5 py-1" style={{ borderRadius: '10px', fontSize: '0.72rem', fontWeight: 500 }}><i className="bi bi-check2-all me-1"></i> Approved</span>;
             case 'revision_requested':
-                return <span className="badge bg-danger text-white px-3 py-1.5 rounded-pill"><i className="bi bi-exclamation-triangle me-1"></i> Revisions Requested</span>;
+                return <span className="badge bg-danger bg-opacity-10 text-danger border border-danger px-2.5 py-1" style={{ borderRadius: '10px', fontSize: '0.72rem', fontWeight: 500 }}><i className="bi bi-exclamation-triangle me-1"></i> Revisions Requested</span>;
             default:
-                return <span className="badge bg-light text-dark">{status}</span>;
+                return <span className="badge bg-light text-dark" style={{ borderRadius: '10px' }}>{status}</span>;
         }
     };
 
     if (loading) {
         return (
             <div className="d-flex flex-column align-items-center justify-content-center min-vh-100 bg-light p-4">
-                <div className="spinner-border text-primary mb-3" style={{ width: '3.5rem', height: '3.5rem' }}></div>
-                <h5 className="fw-bold text-dark">Initializing Google Workspace Studio...</h5>
-                <p className="text-muted small">Loading cloud document editor and authorization keys.</p>
+                <div className="spinner-border text-primary mb-3" style={{ width: '2.5rem', height: '2.5rem' }}></div>
+                <h6 className="text-dark" style={{ fontWeight: 600 }}>Initializing Google Workspace Studio...</h6>
+                <p className="text-muted small">Loading cloud document editor.</p>
             </div>
         );
     }
@@ -97,13 +97,12 @@ export default function DocumentEditorStudioPage() {
         return (
             <div className="container py-5 text-center">
                 <i className="bi bi-exclamation-octagon fs-1 text-danger mb-3 d-block"></i>
-                <h3>Document Not Found</h3>
-                <Link href="/academic/studio" className="btn btn-primary-custom mt-3">Return to Academic Studio</Link>
+                <h5 style={{ fontWeight: 600 }}>Document Not Found</h5>
+                <Link href="/academic/studio" className="btn btn-primary-custom mt-3" style={{ borderRadius: '12px' }}>Return to Academic Studio</Link>
             </div>
         );
     }
 
-    // Google embed link
     const embedUrl = doc.google_embed_link || `https://docs.google.com/document/d/${doc.google_file_id}/edit?embedded=true`;
     const directEditUrl = doc.google_webview_link || `https://docs.google.com/document/d/${doc.google_file_id}/edit`;
 
@@ -112,35 +111,36 @@ export default function DocumentEditorStudioPage() {
             {/* Top Studio Control Bar */}
             <div className="bg-white border-bottom shadow-sm px-3 px-lg-4 py-2.5 d-flex flex-column flex-md-row justify-content-between align-items-md-center gap-2 z-3">
                 {/* Left: Back & Document Meta */}
-                <div className="d-flex align-items-center gap-3">
-                    <Link href="/academic/studio" className="btn btn-sm btn-light border rounded-pill px-3 fw-bold text-muted d-inline-flex align-items-center gap-1.5">
+                <div className="d-flex align-items-center gap-2.5 min-w-0">
+                    <Link href="/academic/studio" className="btn btn-sm btn-light border px-3 text-muted d-inline-flex align-items-center gap-1.5 flex-shrink-0" style={{ borderRadius: '12px', fontSize: '0.82rem', fontWeight: 500 }}>
                         <i className="bi bi-arrow-left"></i> Studio
                     </Link>
 
-                    <div>
+                    <div className="min-w-0">
                         <div className="d-flex align-items-center gap-2 flex-wrap">
-                            <h5 className="fw-bold text-dark mb-0 text-truncate" style={{ maxWidth: '400px' }} title={doc.title}>
+                            <h6 className="text-dark mb-0 text-truncate" style={{ fontWeight: 600, maxWidth: '380px' }} title={doc.title}>
                                 {doc.title}
-                            </h5>
+                            </h6>
                             {getStatusHeaderBadge(doc.status)}
                         </div>
 
-                        <div className="d-flex align-items-center gap-2 small text-muted mt-1">
-                            {doc.class_name && <span className="badge bg-light text-dark border">{doc.class_name}</span>}
-                            {doc.subject_name && <span className="badge bg-light text-dark border">{doc.subject_name}</span>}
-                            {doc.term_name && <span className="badge bg-light text-dark border">{doc.term_name}</span>}
+                        <div className="d-flex align-items-center gap-1.5 small text-muted mt-0.5" style={{ fontSize: '0.76rem' }}>
+                            {doc.class_name && <span className="badge bg-light text-dark border" style={{ borderRadius: '6px' }}>{doc.class_name}</span>}
+                            {doc.subject_name && <span className="badge bg-light text-dark border" style={{ borderRadius: '6px' }}>{doc.subject_name}</span>}
+                            {doc.term_name && <span className="badge bg-light text-dark border" style={{ borderRadius: '6px' }}>{doc.term_name}</span>}
                             <span><i className="bi bi-person me-1"></i>{doc.teacher_name}</span>
                         </div>
                     </div>
                 </div>
 
                 {/* Right: Actions */}
-                <div className="d-flex align-items-center gap-2 flex-wrap">
+                <div className="d-flex align-items-center gap-1.5 flex-wrap">
                     {/* Submit Button */}
                     {['draft', 'revision_requested'].includes(doc.status) && (
                         <button
                             onClick={() => setShowSubmitModal(true)}
-                            className="btn btn-sm btn-warning fw-bold rounded-pill px-3.5 py-2 shadow-sm text-dark d-inline-flex align-items-center gap-1.5"
+                            className="btn btn-sm btn-warning shadow-sm text-dark d-inline-flex align-items-center gap-1.5 px-3 py-1.5"
+                            style={{ borderRadius: '12px', fontSize: '0.82rem', fontWeight: 600 }}
                         >
                             <i className="bi bi-send-check-fill"></i> Submit for Review
                         </button>
@@ -151,10 +151,11 @@ export default function DocumentEditorStudioPage() {
                         href={directEditUrl}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="btn btn-sm btn-outline-primary rounded-pill px-3 py-2 fw-bold d-inline-flex align-items-center gap-1.5"
+                        className="btn btn-sm btn-outline-primary d-inline-flex align-items-center gap-1.5 px-3 py-1.5"
+                        style={{ borderRadius: '12px', fontSize: '0.82rem', fontWeight: 500 }}
                         title="Open full Google Workspace editor in a new browser tab"
                     >
-                        <i className="bi bi-box-arrow-up-right"></i> Open in Google {doc.template_type === 'slide' ? 'Slides' : doc.template_type === 'sheet' ? 'Sheets' : 'Docs'}
+                        <i className="bi bi-box-arrow-up-right"></i> Google {doc.template_type === 'slide' ? 'Slides' : doc.template_type === 'sheet' ? 'Sheets' : 'Docs'}
                     </a>
 
                     {/* Download Official PDF */}
@@ -162,7 +163,8 @@ export default function DocumentEditorStudioPage() {
                         <a
                             href={`${API_URL}/academic-studio/documents/${doc.id}/export-pdf`}
                             target="_blank"
-                            className="btn btn-sm btn-outline-secondary rounded-pill px-3 py-2 fw-bold d-inline-flex align-items-center gap-1.5"
+                            className="btn btn-sm btn-outline-secondary d-inline-flex align-items-center gap-1.5 px-2.5 py-1.5"
+                            style={{ borderRadius: '12px', fontSize: '0.82rem', fontWeight: 500 }}
                             title="Export & Download PDF"
                         >
                             <i className="bi bi-file-earmark-pdf-fill text-danger"></i> PDF
@@ -172,9 +174,10 @@ export default function DocumentEditorStudioPage() {
                     {/* Review History Drawer Toggle */}
                     <button
                         onClick={() => setShowDrawer(!showDrawer)}
-                        className={`btn btn-sm rounded-pill px-3 py-2 fw-bold d-inline-flex align-items-center gap-1.5 ${showDrawer ? 'btn-primary' : 'btn-light border'}`}
+                        className={`btn btn-sm d-inline-flex align-items-center gap-1.5 px-3 py-1.5 ${showDrawer ? 'btn-primary' : 'btn-light border'}`}
+                        style={{ borderRadius: '12px', fontSize: '0.82rem', fontWeight: 500 }}
                     >
-                        <i className="bi bi-chat-left-text"></i> Review Notes ({doc.approvals?.length || 0})
+                        <i className="bi bi-chat-left-text"></i> Notes ({doc.approvals?.length || 0})
                     </button>
                 </div>
             </div>
@@ -195,10 +198,10 @@ export default function DocumentEditorStudioPage() {
                 {showDrawer && (
                     <div
                         className="border-start bg-white shadow-lg d-flex flex-column animate__animated animate__fadeInRight"
-                        style={{ width: '360px', zIndex: 1040, minWidth: '320px' }}
+                        style={{ width: '340px', zIndex: 1040, minWidth: '300px' }}
                     >
                         <div className="p-3 border-bottom d-flex justify-content-between align-items-center bg-light">
-                            <h6 className="fw-bold mb-0 text-dark">
+                            <h6 className="mb-0 text-dark" style={{ fontWeight: 600, fontSize: '0.9rem' }}>
                                 <i className="bi bi-clock-history me-2 text-primary"></i>Review & Approval History
                             </h6>
                             <button className="btn-close" onClick={() => setShowDrawer(false)}></button>
@@ -208,22 +211,22 @@ export default function DocumentEditorStudioPage() {
                             {doc.approvals && doc.approvals.length > 0 ? (
                                 <div className="timeline-list">
                                     {doc.approvals.map((appr: any, idx: number) => (
-                                        <div key={idx} className="mb-3 p-3 rounded-3 bg-light border position-relative">
+                                        <div key={idx} className="mb-3 p-3 bg-light border position-relative" style={{ borderRadius: '14px' }}>
                                             <div className="d-flex justify-content-between align-items-start mb-1">
-                                                <span className="badge bg-primary bg-opacity-10 text-primary border border-primary text-uppercase" style={{ fontSize: '0.7rem' }}>
+                                                <span className="badge bg-primary bg-opacity-10 text-primary border border-primary text-uppercase" style={{ borderRadius: '6px', fontSize: '0.68rem' }}>
                                                     {appr.reviewer_role}
                                                 </span>
-                                                <span className="text-muted" style={{ fontSize: '0.75rem' }}>
+                                                <span className="text-muted" style={{ fontSize: '0.72rem' }}>
                                                     {new Date(appr.created_at).toLocaleDateString('en-PK', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}
                                                 </span>
                                             </div>
 
-                                            <div className="fw-bold small text-dark mt-1">
+                                            <div className="small text-dark mt-1" style={{ fontWeight: 600 }}>
                                                 Action: <span className="text-capitalize text-teal">{appr.action.replace('_', ' ')}</span>
                                             </div>
 
                                             {appr.remarks && (
-                                                <p className="text-secondary small mb-0 mt-1.5 p-2 rounded bg-white border fst-italic">
+                                                <p className="text-secondary small mb-0 mt-1.5 p-2 bg-white border fst-italic" style={{ borderRadius: '8px', fontSize: '0.8rem' }}>
                                                     "{appr.remarks}"
                                                 </p>
                                             )}
@@ -238,8 +241,8 @@ export default function DocumentEditorStudioPage() {
                                 </div>
                             ) : (
                                 <div className="text-center py-5 text-muted">
-                                    <i className="bi bi-chat-square-dots fs-1 opacity-50"></i>
-                                    <p className="small mt-2">No review remarks recorded yet.</p>
+                                    <i className="bi bi-chat-square-dots fs-2 opacity-50"></i>
+                                    <p className="small mt-2 mb-0">No review remarks recorded yet.</p>
                                 </div>
                             )}
                         </div>
@@ -253,29 +256,34 @@ export default function DocumentEditorStudioPage() {
                     <div className="modal-backdrop fade show" style={{ zIndex: 1060 }}></div>
                     <div className="modal fade show d-block" tabIndex={-1} style={{ zIndex: 1065 }}>
                         <div className="modal-dialog modal-dialog-centered">
-                            <div className="modal-content border-0 shadow-lg rounded-4">
-                                <div className="modal-header text-white" style={{ backgroundColor: 'var(--primary-dark, #195053)' }}>
-                                    <h5 className="modal-title fw-bold"><i className="bi bi-send-check me-2 text-warning"></i>Submit Document for Review</h5>
+                            <div className="modal-content border-0 shadow-lg" style={{ borderRadius: '20px', overflow: 'hidden' }}>
+                                <div className="modal-header text-white p-3.5" style={{ backgroundColor: 'var(--primary-dark, #195053)' }}>
+                                    <h6 className="modal-title mb-0" style={{ fontWeight: 600 }}>
+                                        <i className="bi bi-send-check me-2 text-warning"></i>Submit Document for Review
+                                    </h6>
                                     <button className="btn-close btn-close-white" onClick={() => setShowSubmitModal(false)}></button>
                                 </div>
-                                <div className="modal-body p-4">
+                                <div className="modal-body p-3.5 p-sm-4">
                                     <p className="text-muted small mb-3">
                                         Submitting this document will lock your direct editing permissions and forward it to the <strong>Subject Coordinator</strong> for syllabus & format verification.
                                     </p>
 
-                                    <label className="form-label fw-bold small text-muted text-uppercase">Optional Notes / Remarks for Reviewer</label>
+                                    <label className="form-label text-muted text-uppercase mb-1" style={{ fontSize: '0.76rem', letterSpacing: '0.5px', fontWeight: 600 }}>
+                                        Optional Notes / Remarks for Reviewer
+                                    </label>
                                     <textarea
-                                        className="form-control rounded-3"
+                                        className="form-control"
                                         rows={3}
-                                        placeholder="e.g. All 3 sections completed as per Mid-Term syllabus guidelines."
+                                        placeholder="e.g. All sections completed as per syllabus guidelines."
                                         value={submitRemarks}
                                         onChange={e => setSubmitRemarks(e.target.value)}
+                                        style={{ borderRadius: '12px', fontSize: '0.88rem' }}
                                     ></textarea>
 
                                     <div className="d-flex justify-content-end gap-2 mt-4 pt-2 border-top">
-                                        <button className="btn btn-light rounded-pill px-4" onClick={() => setShowSubmitModal(false)}>Cancel</button>
-                                        <button className="btn btn-warning rounded-pill px-4 fw-bold text-dark" onClick={handleSubmitForReview} disabled={submitting}>
-                                            {submitting ? <><span className="spinner-border spinner-border-sm me-2"></span>Submitting...</> : 'Confirm & Submit'}
+                                        <button className="btn btn-light px-3.5" style={{ borderRadius: '12px', fontSize: '0.85rem' }} onClick={() => setShowSubmitModal(false)}>Cancel</button>
+                                        <button className="btn btn-warning px-4 text-dark" style={{ borderRadius: '12px', fontSize: '0.85rem', fontWeight: 600 }} onClick={handleSubmitForReview} disabled={submitting}>
+                                            {submitting ? <><span className="spinner-border spinner-border-sm me-1.5"></span>Submitting...</> : 'Confirm & Submit'}
                                         </button>
                                     </div>
                                 </div>

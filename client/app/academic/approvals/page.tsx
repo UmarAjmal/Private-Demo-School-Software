@@ -47,7 +47,6 @@ export default function AcademicApprovalsPage() {
 
         setActionLoading(true);
         try {
-            // Determine reviewer role based on logged in user or current tab
             const userRoleName = user?.role_name || (
                 activeTab === 'pending_coordinator' ? 'Coordinator' :
                 activeTab === 'pending_vp' ? 'Vice Principal' : 'Principal'
@@ -86,7 +85,7 @@ export default function AcademicApprovalsPage() {
 
     const getRoleQueueTitle = (tab: string) => {
         switch (tab) {
-            case 'pending_coordinator': return 'Level 1: Coordinator Review Queue';
+            case 'pending_coordinator': return 'Level 1: Subject Coordinator Review Queue';
             case 'pending_vp': return 'Level 2: Vice Principal Review Queue';
             case 'pending_principal': return 'Level 3: Principal Final Approval';
             case 'approved': return 'Approved Academic Repository';
@@ -95,20 +94,22 @@ export default function AcademicApprovalsPage() {
     };
 
     return (
-        <div className="container-fluid py-4 px-3 px-md-4 animate__animated animate__fadeIn">
+        <div className="container-fluid py-3 py-md-4 px-2 px-sm-3 px-md-4 animate__animated animate__fadeIn">
             {/* Top Hero Banner */}
-            <div className="card border-0 shadow-sm rounded-4 overflow-hidden mb-4" style={{ background: 'linear-gradient(135deg, #1e293b 0%, var(--primary-dark, #195053) 100%)' }}>
-                <div className="card-body p-4 p-lg-5 text-white">
+            <div className="card border-0 shadow-sm overflow-hidden mb-4" style={{ borderRadius: '20px', background: 'linear-gradient(135deg, #1e293b 0%, var(--primary-dark, #195053) 100%)' }}>
+                <div className="card-body p-3.5 p-sm-4 p-lg-5 text-white">
                     <div className="d-flex flex-column flex-md-row justify-content-between align-items-start align-items-md-center gap-3">
                         <div>
-                            <div className="d-inline-flex align-items-center gap-2 px-3 py-1 rounded-pill bg-white bg-opacity-10 text-warning small fw-bold mb-2">
+                            <div className="d-inline-flex align-items-center gap-2 px-3 py-1 rounded-pill bg-white bg-opacity-10 text-warning small mb-2" style={{ fontWeight: 500 }}>
                                 <i className="bi bi-shield-check"></i> Quality & Compliance Assurance Deck
                             </div>
-                            <h2 className="fw-bold mb-1">📋 Academic Review & Approvals Deck</h2>
-                            <p className="text-white-50 mb-0">Multi-tier evaluation deck for Coordinators, Vice Principals, and Principals to review and approve exams, notes, and packs.</p>
+                            <h2 className="mb-1" style={{ fontWeight: 600, letterSpacing: '-0.3px' }}>📋 Academic Review & Approvals Deck</h2>
+                            <p className="text-white-50 mb-0 small" style={{ maxWidth: '640px' }}>
+                                Multi-tier evaluation deck for Coordinators, Vice Principals, and Principals to review and approve exams, notes, and packs.
+                            </p>
                         </div>
                         <div>
-                            <Link href="/academic/studio" className="btn btn-warning rounded-pill px-4 py-2.5 fw-bold shadow-sm d-inline-flex align-items-center gap-2 text-dark">
+                            <Link href="/academic/studio" className="btn btn-warning px-4 py-2.5 shadow-sm d-inline-flex align-items-center gap-2 text-dark" style={{ borderRadius: '14px', fontSize: '0.88rem', fontWeight: 600 }}>
                                 <i className="bi bi-palette"></i> Academic Content Studio
                             </Link>
                         </div>
@@ -117,7 +118,7 @@ export default function AcademicApprovalsPage() {
             </div>
 
             {/* Role Queues Tabs */}
-            <div className="card border-0 shadow-sm rounded-4 mb-4 bg-white">
+            <div className="card border-0 shadow-sm mb-4 bg-white" style={{ borderRadius: '18px' }}>
                 <div className="card-header bg-white border-bottom p-2.5">
                     <div className="d-flex align-items-center gap-2 overflow-x-auto text-nowrap scrollbar-none">
                         {[
@@ -131,19 +132,20 @@ export default function AcademicApprovalsPage() {
                                 <button
                                     key={tab.id}
                                     onClick={() => setActiveTab(tab.id as any)}
-                                    className="btn btn-sm d-inline-flex align-items-center gap-2 px-3.5 py-2.5 rounded-3 fw-bold transition-all border-0"
+                                    className="btn btn-sm d-inline-flex align-items-center gap-2 px-3.5 py-2.5 border-0 transition"
                                     style={{
-                                        fontSize: '0.88rem',
+                                        borderRadius: '12px',
+                                        fontSize: '0.84rem',
+                                        fontWeight: isActive ? 600 : 500,
                                         backgroundColor: isActive ? 'var(--primary-teal, #195053)' : '#f8fafc',
                                         color: isActive ? '#ffffff' : '#64748b',
-                                        boxShadow: isActive ? '0 4px 12px rgba(25, 80, 83, 0.25)' : 'none',
-                                        border: isActive ? '1px solid var(--primary-teal, #195053)' : '1px solid #e2e8f0'
+                                        boxShadow: isActive ? '0 4px 12px rgba(25, 80, 83, 0.2)' : 'none'
                                     }}
                                 >
                                     <i className={`bi ${tab.icon}`} style={{ color: isActive ? '#ffffff' : '#64748b' }}></i>
                                     <span>{tab.label}</span>
                                     {tab.count > 0 && (
-                                        <span className={`badge rounded-pill ${tab.badgeColor} ms-1`}>
+                                        <span className={`badge rounded-pill ${tab.badgeColor} ms-1`} style={{ fontSize: '0.7rem' }}>
                                             {tab.count}
                                         </span>
                                     )}
@@ -153,21 +155,21 @@ export default function AcademicApprovalsPage() {
                     </div>
                 </div>
 
-                <div className="card-body p-4">
+                <div className="card-body p-3 p-sm-4">
                     <div className="d-flex justify-content-between align-items-center mb-3">
-                        <h6 className="fw-bold text-dark mb-0">{getRoleQueueTitle(activeTab)}</h6>
+                        <h6 className="text-dark mb-0" style={{ fontWeight: 600, fontSize: '0.92rem' }}>{getRoleQueueTitle(activeTab)}</h6>
                         <span className="text-muted small">{tabDocs.length} items in this queue</span>
                     </div>
 
                     {loading ? (
                         <div className="py-5 text-center">
-                            <div className="spinner-border text-primary mb-2"></div>
+                            <div className="spinner-border text-primary mb-2" style={{ width: '2.2rem', height: '2.2rem' }}></div>
                             <p className="text-muted small">Loading review items...</p>
                         </div>
                     ) : tabDocs.length === 0 ? (
                         <div className="py-5 text-center text-muted">
                             <i className="bi bi-check2-circle fs-1 text-success opacity-50 mb-2 d-block"></i>
-                            <h6 className="fw-bold text-dark">Queue is All Clear!</h6>
+                            <h6 className="text-dark" style={{ fontWeight: 600 }}>Queue is All Clear!</h6>
                             <p className="small mb-0">No documents are currently awaiting action in this review tier.</p>
                         </div>
                     ) : (
@@ -175,40 +177,40 @@ export default function AcademicApprovalsPage() {
                             <table className="table table-hover align-middle mb-0">
                                 <thead className="bg-light">
                                     <tr>
-                                        <th className="ps-3 py-3">Document Title</th>
-                                        <th className="py-3">Type</th>
-                                        <th className="py-3">Class & Subject</th>
-                                        <th className="py-3">Submitted By</th>
-                                        <th className="py-3">Date</th>
-                                        <th className="py-3 text-center">Status</th>
-                                        <th className="pe-3 py-3 text-end">Action</th>
+                                        <th className="ps-3 py-3" style={{ fontSize: '0.8rem', fontWeight: 600, color: '#64748b' }}>DOCUMENT TITLE</th>
+                                        <th className="py-3" style={{ fontSize: '0.8rem', fontWeight: 600, color: '#64748b' }}>TYPE</th>
+                                        <th className="py-3" style={{ fontSize: '0.8rem', fontWeight: 600, color: '#64748b' }}>CLASS & SUBJECT</th>
+                                        <th className="py-3" style={{ fontSize: '0.8rem', fontWeight: 600, color: '#64748b' }}>SUBMITTED BY</th>
+                                        <th className="py-3" style={{ fontSize: '0.8rem', fontWeight: 600, color: '#64748b' }}>DATE</th>
+                                        <th className="py-3 text-center" style={{ fontSize: '0.8rem', fontWeight: 600, color: '#64748b' }}>STATUS</th>
+                                        <th className="pe-3 py-3 text-end" style={{ fontSize: '0.8rem', fontWeight: 600, color: '#64748b' }}>ACTION</th>
                                     </tr>
                                 </thead>
                                 <tbody>
                                     {tabDocs.map((doc: any) => (
                                         <tr key={doc.id}>
                                             <td className="ps-3">
-                                                <div className="fw-bold text-dark">{doc.title}</div>
-                                                <div className="text-muted small">ID: #{doc.id} {doc.term_name ? `• ${doc.term_name}` : ''}</div>
+                                                <div className="text-dark" style={{ fontWeight: 600, fontSize: '0.9rem' }}>{doc.title}</div>
+                                                <div className="text-muted small" style={{ fontSize: '0.74rem' }}>ID: #{doc.id} {doc.term_name ? `• ${doc.term_name}` : ''}</div>
                                             </td>
                                             <td>
-                                                <span className="badge bg-light text-dark border text-uppercase" style={{ fontSize: '0.72rem' }}>
+                                                <span className="badge bg-light text-dark border text-uppercase" style={{ borderRadius: '8px', fontSize: '0.7rem', fontWeight: 500 }}>
                                                     {doc.category.replace('_', ' ')}
                                                 </span>
                                             </td>
                                             <td>
-                                                <span className="fw-semibold text-dark">{doc.class_name || 'General'}</span>
-                                                <span className="text-muted ms-1.5">• {doc.subject_name || 'General'}</span>
+                                                <span className="text-dark" style={{ fontWeight: 500, fontSize: '0.86rem' }}>{doc.class_name || 'General'}</span>
+                                                <span className="text-muted ms-1" style={{ fontSize: '0.82rem' }}>• {doc.subject_name || 'General'}</span>
                                             </td>
                                             <td>
-                                                <div className="fw-medium text-dark">{doc.teacher_name || 'Teacher'}</div>
-                                                <div className="text-muted small">{doc.teacher_email || '—'}</div>
+                                                <div className="text-dark" style={{ fontWeight: 500, fontSize: '0.86rem' }}>{doc.teacher_name || 'Teacher'}</div>
+                                                <div className="text-muted small" style={{ fontSize: '0.74rem' }}>{doc.teacher_email || '—'}</div>
                                             </td>
-                                            <td className="small text-muted">
+                                            <td className="small text-muted" style={{ fontSize: '0.78rem' }}>
                                                 {new Date(doc.updated_at).toLocaleDateString('en-PK', { day: '2-digit', month: 'short', year: 'numeric' })}
                                             </td>
                                             <td className="text-center">
-                                                <span className={`badge px-3 py-1.5 rounded-pill ${doc.status === 'approved' ? 'bg-success bg-opacity-10 text-success border border-success' : 'bg-warning bg-opacity-10 text-warning border border-warning'}`}>
+                                                <span className={`badge px-2.5 py-1 ${doc.status === 'approved' ? 'bg-success bg-opacity-10 text-success border border-success' : 'bg-warning bg-opacity-10 text-warning border border-warning'}`} style={{ borderRadius: '8px', fontSize: '0.72rem', fontWeight: 500 }}>
                                                     {doc.status.replace('_', ' ').toUpperCase()}
                                                 </span>
                                             </td>
@@ -216,18 +218,20 @@ export default function AcademicApprovalsPage() {
                                                 <div className="d-flex justify-content-end gap-1.5">
                                                     <Link
                                                         href={`/academic/studio/${doc.id}`}
-                                                        className="btn btn-sm btn-outline-primary rounded-pill px-3"
+                                                        className="btn btn-sm btn-outline-primary d-inline-flex align-items-center gap-1 px-2.5"
+                                                        style={{ borderRadius: '10px', fontSize: '0.8rem', fontWeight: 500 }}
                                                         title="Open in Studio"
                                                     >
-                                                        <i className="bi bi-box-arrow-in-up-right me-1"></i> Open
+                                                        <i className="bi bi-box-arrow-in-up-right"></i> Open
                                                     </Link>
 
                                                     {doc.status !== 'approved' && (
                                                         <button
                                                             onClick={() => { setSelectedDoc(doc); setReviewAction('approve'); }}
-                                                            className="btn btn-sm btn-primary-custom rounded-pill px-3 fw-bold"
+                                                            className="btn btn-sm btn-primary-custom d-inline-flex align-items-center gap-1 px-3"
+                                                            style={{ borderRadius: '10px', fontSize: '0.8rem', fontWeight: 600 }}
                                                         >
-                                                            <i className="bi bi-check2-circle me-1"></i> Review
+                                                            <i className="bi bi-check2-circle"></i> Review
                                                         </button>
                                                     )}
 
@@ -235,7 +239,8 @@ export default function AcademicApprovalsPage() {
                                                         <a
                                                             href={`${API_URL}/academic-studio/documents/${doc.id}/export-pdf`}
                                                             target="_blank"
-                                                            className="btn btn-sm btn-light border rounded-pill px-2.5"
+                                                            className="btn btn-sm btn-light border px-2.5"
+                                                            style={{ borderRadius: '10px', fontSize: '0.8rem' }}
                                                             title="Download PDF"
                                                         >
                                                             <i className="bi bi-file-earmark-pdf text-danger"></i>
@@ -258,14 +263,14 @@ export default function AcademicApprovalsPage() {
                     <div className="modal-backdrop fade show" style={{ zIndex: 1060 }}></div>
                     <div className="modal fade show d-block" tabIndex={-1} style={{ zIndex: 1065 }}>
                         <div className="modal-dialog modal-dialog-centered modal-xl">
-                            <div className="modal-content border-0 shadow-lg rounded-4 overflow-hidden" style={{ maxHeight: '90vh' }}>
+                            <div className="modal-content border-0 shadow-lg overflow-hidden" style={{ borderRadius: '22px', maxHeight: '90vh' }}>
                                 <div className="modal-header text-white p-3.5" style={{ backgroundColor: 'var(--primary-dark, #195053)' }}>
                                     <div>
-                                        <h5 className="modal-title fw-bold mb-0">
+                                        <h6 className="modal-title mb-0" style={{ fontWeight: 600 }}>
                                             <i className="bi bi-shield-check me-2 text-warning"></i>
                                             Evaluating: {selectedDoc.title}
-                                        </h5>
-                                        <div className="small text-white-50 mt-1">
+                                        </h6>
+                                        <div className="small text-white-50 mt-0.5" style={{ fontSize: '0.76rem' }}>
                                             Class: {selectedDoc.class_name} | Subject: {selectedDoc.subject_name} | Teacher: {selectedDoc.teacher_name}
                                         </div>
                                     </div>
@@ -283,15 +288,15 @@ export default function AcademicApprovalsPage() {
                                     </div>
 
                                     {/* Right: Decision Panel */}
-                                    <div className="p-4 d-flex flex-column justify-content-between bg-white" style={{ width: '380px', minWidth: '340px' }}>
+                                    <div className="p-3.5 p-sm-4 d-flex flex-column justify-content-between bg-white" style={{ width: '380px', minWidth: '320px' }}>
                                         <div>
-                                            <h6 className="fw-bold text-dark border-bottom pb-2 mb-3">
+                                            <h6 className="text-dark border-bottom pb-2 mb-3" style={{ fontWeight: 600, fontSize: '0.9rem' }}>
                                                 <i className="bi bi-pencil-square me-2 text-primary"></i>Review Decision
                                             </h6>
 
                                             {/* Decision Radio Selector */}
                                             <div className="d-flex flex-column gap-2 mb-3">
-                                                <label className={`p-3 rounded-3 border cursor-pointer transition d-flex align-items-center gap-3 ${reviewAction === 'approve' ? 'border-success bg-success bg-opacity-10' : 'bg-light'}`} style={{ cursor: 'pointer' }}>
+                                                <label className={`p-3 border transition d-flex align-items-center gap-3 ${reviewAction === 'approve' ? 'border-success bg-success bg-opacity-10' : 'bg-light'}`} style={{ borderRadius: '14px', cursor: 'pointer' }}>
                                                     <input
                                                         type="radio"
                                                         name="reviewAction"
@@ -300,12 +305,12 @@ export default function AcademicApprovalsPage() {
                                                         onChange={() => setReviewAction('approve')}
                                                     />
                                                     <div>
-                                                        <div className="fw-bold text-success">Approve & Forward</div>
+                                                        <div className="text-success" style={{ fontWeight: 600, fontSize: '0.88rem' }}>Approve & Forward</div>
                                                         <div className="text-muted" style={{ fontSize: '0.72rem' }}>Pass to next authority or final stamp</div>
                                                     </div>
                                                 </label>
 
-                                                <label className={`p-3 rounded-3 border cursor-pointer transition d-flex align-items-center gap-3 ${reviewAction === 'request_revision' ? 'border-danger bg-danger bg-opacity-10' : 'bg-light'}`} style={{ cursor: 'pointer' }}>
+                                                <label className={`p-3 border transition d-flex align-items-center gap-3 ${reviewAction === 'request_revision' ? 'border-danger bg-danger bg-opacity-10' : 'bg-light'}`} style={{ borderRadius: '14px', cursor: 'pointer' }}>
                                                     <input
                                                         type="radio"
                                                         name="reviewAction"
@@ -314,12 +319,12 @@ export default function AcademicApprovalsPage() {
                                                         onChange={() => setReviewAction('request_revision')}
                                                     />
                                                     <div>
-                                                        <div className="fw-bold text-danger">Request Changes / Revisions</div>
+                                                        <div className="text-danger" style={{ fontWeight: 600, fontSize: '0.88rem' }}>Request Changes / Revisions</div>
                                                         <div className="text-muted" style={{ fontSize: '0.72rem' }}>Revert edit access to teacher with notes</div>
                                                     </div>
                                                 </label>
 
-                                                <label className={`p-3 rounded-3 border cursor-pointer transition d-flex align-items-center gap-3 ${reviewAction === 'reject' ? 'border-dark bg-dark bg-opacity-10' : 'bg-light'}`} style={{ cursor: 'pointer' }}>
+                                                <label className={`p-3 border transition d-flex align-items-center gap-3 ${reviewAction === 'reject' ? 'border-dark bg-dark bg-opacity-10' : 'bg-light'}`} style={{ borderRadius: '14px', cursor: 'pointer' }}>
                                                     <input
                                                         type="radio"
                                                         name="reviewAction"
@@ -328,31 +333,33 @@ export default function AcademicApprovalsPage() {
                                                         onChange={() => setReviewAction('reject')}
                                                     />
                                                     <div>
-                                                        <div className="fw-bold text-dark">Reject Document</div>
+                                                        <div className="text-dark" style={{ fontWeight: 600, fontSize: '0.88rem' }}>Reject Document</div>
                                                         <div className="text-muted" style={{ fontSize: '0.72rem' }}>Mark as unapproved and archive</div>
                                                     </div>
                                                 </label>
                                             </div>
 
                                             {/* Review Remarks */}
-                                            <label className="form-label fw-bold small text-muted text-uppercase">
+                                            <label className="form-label text-muted text-uppercase mb-1" style={{ fontSize: '0.74rem', letterSpacing: '0.5px', fontWeight: 600 }}>
                                                 Reviewer Remarks {reviewAction === 'request_revision' && <span className="text-danger">*</span>}
                                             </label>
                                             <textarea
-                                                className="form-control rounded-3"
+                                                className="form-control"
                                                 rows={4}
                                                 placeholder={reviewAction === 'request_revision' ? 'Specify what questions or formatting need correction...' : 'Optional approval comments...'}
                                                 value={reviewRemarks}
                                                 onChange={e => setReviewRemarks(e.target.value)}
+                                                style={{ borderRadius: '12px', fontSize: '0.88rem' }}
                                             ></textarea>
                                         </div>
 
                                         <div className="d-flex gap-2 pt-3 border-top mt-3">
-                                            <button className="btn btn-light rounded-pill px-4 flex-grow-1" onClick={() => setSelectedDoc(null)}>
+                                            <button className="btn btn-light px-3.5 flex-grow-1" style={{ borderRadius: '12px', fontSize: '0.85rem' }} onClick={() => setSelectedDoc(null)}>
                                                 Close
                                             </button>
                                             <button
-                                                className={`btn rounded-pill px-4 fw-bold flex-grow-1 ${reviewAction === 'approve' ? 'btn-success' : reviewAction === 'request_revision' ? 'btn-danger' : 'btn-dark'}`}
+                                                className={`btn px-4 flex-grow-1 ${reviewAction === 'approve' ? 'btn-success' : reviewAction === 'request_revision' ? 'btn-danger' : 'btn-dark'}`}
+                                                style={{ borderRadius: '12px', fontSize: '0.85rem', fontWeight: 600 }}
                                                 onClick={handleExecuteReview}
                                                 disabled={actionLoading}
                                             >
