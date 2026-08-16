@@ -21,80 +21,122 @@ let docsClient = null;
 let slidesClient = null;
 let sheetsClient = null;
 
+function resolveCredentials() {
+    // 1. Gather all potential environment variables that might hold the JSON string
+    const candidates = [
+        process.env.GOOGLE_SERVICE_ACCOUNT_KEY_PATH,
+        process.env.GOOGLE_SERVICE_ACCOUNT_KEY_JSON,
+        process.env.GOOGLE_SERVICE_ACCOUNT_JSON,
+        process.env.GOOGLE_SERVICE_ACCOUNT_KEY,
+        process.env.GOOGLE_CREDENTIALS,
+        process.env.GOOGLE_CREDS
+    ];
+
+    for (const candidate of candidates) {
+        if (!candidate || typeof candidate !== 'string') continue;
+        let str = candidate.trim();
+
+        // Strip surrounding single or double quotes
+        if ((str.startsWith('"') && str.endsWith('"')) || (str.startsWith("'") && str.endsWith("'"))) {
+            str = str.slice(1, -1).trim();
+        }
+
+        // Handle base64
+        if (str.startsWith('ey') && !str.startsWith('{')) {
+            try {
+                str = Buffer.from(str, 'base64').toString('utf-8');
+            } catch (e) {}
+        }
+
+        // Check if string looks like JSON or contains service_account
+        if ((str.startsWith('{') && str.endsWith('}')) || str.includes('service_account')) {
+            try {
+                let creds = JSON.parse(str);
+                if (typeof creds === 'string') creds = JSON.parse(creds);
+                if (creds.private_key && creds.private_key.includes('\\n')) {
+                    creds.private_key = creds.private_key.replace(/\\n/g, '\n');
+                }
+                if (creds.client_email && creds.private_key) {
+                    return { credentials: creds };
+                }
+            } catch (e) {
+                console.error('[Google Workspace] Error parsing JSON string from env:', e.message);
+            }
+        }
+    }
+
+    // 2. Check direct GOOGLE_CLIENT_EMAIL and GOOGLE_PRIVATE_KEY
+    if (process.env.GOOGLE_CLIENT_EMAIL && process.env.GOOGLE_PRIVATE_KEY) {
+        return {
+            credentials: {
+                client_email: process.env.GOOGLE_CLIENT_EMAIL,
+                private_key: process.env.GOOGLE_PRIVATE_KEY.replace(/\\n/g, '\n')
+            }
+        };
+    }
+
+    // 3. Check local file paths
+    const possiblePaths = [
+        path.resolve(__dirname, '..', 'google-service-account.json'),
+        path.resolve(__dirname, '..', '..', 'google-service-account.json'),
+        path.resolve(process.cwd(), 'google-service-account.json'),
+        path.resolve(process.cwd(), 'server', 'google-service-account.json')
+    ];
+
+    // If GOOGLE_SERVICE_ACCOUNT_KEY_PATH is an actual filename on disk
+    if (process.env.GOOGLE_SERVICE_ACCOUNT_KEY_PATH && !process.env.GOOGLE_SERVICE_ACCOUNT_KEY_PATH.trim().startsWith('{')) {
+        possiblePaths.unshift(path.resolve(__dirname, '..', process.env.GOOGLE_SERVICE_ACCOUNT_KEY_PATH));
+        possiblePaths.unshift(path.resolve(process.cwd(), process.env.GOOGLE_SERVICE_ACCOUNT_KEY_PATH));
+    }
+
+    for (const filePath of possiblePaths) {
+        if (fs.existsSync(filePath)) {
+            try {
+                const stat = fs.statSync(filePath);
+                if (stat.isFile()) {
+                    const fileContent = fs.readFileSync(filePath, 'utf-8');
+                    const creds = JSON.parse(fileContent);
+                    if (creds.private_key && creds.private_key.includes('\\n')) {
+                        creds.private_key = creds.private_key.replace(/\\n/g, '\n');
+                    }
+                    return { credentials: creds, keyFile: filePath };
+                }
+            } catch (e) {
+                console.error(`[Google Workspace] Error reading key file at ${filePath}:`, e.message);
+            }
+        }
+    }
+
+    return null;
+}
+
 function getAuth() {
     if (authClient) return authClient;
 
-    // 1. Check multiple possible environment variable names for the service account key
-    const rawEnvJson = process.env.GOOGLE_SERVICE_ACCOUNT_KEY_JSON 
-        || process.env.GOOGLE_SERVICE_ACCOUNT_JSON 
-        || process.env.GOOGLE_CREDENTIALS
-        || process.env.GOOGLE_SERVICE_ACCOUNT_KEY;
-
-    if (rawEnvJson) {
-        try {
-            let jsonStr = rawEnvJson.trim();
-
-            // Strip surrounding single or double quotes if Render/User wrapped the whole JSON in quotes
-            if ((jsonStr.startsWith('"') && jsonStr.endsWith('"')) || (jsonStr.startsWith("'") && jsonStr.endsWith("'"))) {
-                jsonStr = jsonStr.slice(1, -1).trim();
-            }
-
-            // Handle base64 encoded string
-            if (jsonStr.startsWith('ey') && !jsonStr.startsWith('{')) {
-                jsonStr = Buffer.from(jsonStr, 'base64').toString('utf-8');
-            }
-
-            let credentials = JSON.parse(jsonStr);
-            // Handle double-stringified JSON
-            if (typeof credentials === 'string') {
-                credentials = JSON.parse(credentials);
-            }
-
-            // Ensure private_key has correct real newlines
-            if (credentials.private_key && credentials.private_key.includes('\\n')) {
-                credentials.private_key = credentials.private_key.replace(/\\n/g, '\n');
-            }
-
-            authClient = new google.auth.GoogleAuth({
-                credentials,
-                scopes: SCOPES
-            });
-            console.log(`[Google Workspace] Authenticated successfully via environment variable credentials (${credentials.client_email})`);
-            return authClient;
-        } catch (e) {
-            console.error('[Google Workspace] Error parsing environment variable credentials JSON:', e.message);
-        }
+    const resolved = resolveCredentials();
+    if (!resolved) {
+        throw new Error('Google Service Account credentials not found. Please ensure GOOGLE_SERVICE_ACCOUNT_KEY_JSON or GOOGLE_SERVICE_ACCOUNT_KEY_PATH in Render contains the service account JSON.');
     }
 
-    // 2. Check direct client_email and private_key environment variables
-    if (process.env.GOOGLE_CLIENT_EMAIL && process.env.GOOGLE_PRIVATE_KEY) {
-        try {
-            const privateKey = process.env.GOOGLE_PRIVATE_KEY.replace(/\\n/g, '\n');
-            authClient = new google.auth.GoogleAuth({
-                credentials: {
-                    client_email: process.env.GOOGLE_CLIENT_EMAIL,
-                    private_key: privateKey
-                },
-                scopes: SCOPES
-            });
-            console.log(`[Google Workspace] Authenticated successfully via GOOGLE_CLIENT_EMAIL / GOOGLE_PRIVATE_KEY`);
-            return authClient;
-        } catch (e) {
-            console.error('[Google Workspace] Error authenticating with direct keys:', e.message);
-        }
-    }
-
-    // 3. Fallback to local JSON key file
-    if (fs.existsSync(KEY_FILE_PATH)) {
+    if (resolved.credentials) {
         authClient = new google.auth.GoogleAuth({
-            keyFile: KEY_FILE_PATH,
+            credentials: resolved.credentials,
             scopes: SCOPES
         });
-        console.log(`[Google Workspace] Authenticated successfully via local file: ${KEY_FILE_PATH}`);
+        console.log(`[Google Workspace] Authenticated successfully via credentials object (${resolved.credentials.client_email})`);
         return authClient;
     }
 
-    throw new Error(`Google Service Account credentials not found. On Render, please add GOOGLE_SERVICE_ACCOUNT_KEY_JSON to Environment Variables. Checked env vars: GOOGLE_SERVICE_ACCOUNT_KEY_JSON, GOOGLE_SERVICE_ACCOUNT_JSON, GOOGLE_CREDENTIALS. Local file check: ${KEY_FILE_PATH}`);
+    if (resolved.keyFile) {
+        authClient = new google.auth.GoogleAuth({
+            keyFile: resolved.keyFile,
+            scopes: SCOPES
+        });
+        console.log(`[Google Workspace] Authenticated successfully via key file: ${resolved.keyFile}`);
+        return authClient;
+    }
+
+    throw new Error('Could not initialize Google Auth client.');
 }
 
 function getDrive() {
