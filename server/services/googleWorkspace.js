@@ -113,9 +113,24 @@ function resolveCredentials() {
 function getAuth() {
     if (authClient) return authClient;
 
+    // 1. Check if OAuth2 User Tokens are configured (Uses your personal 15GB Google Drive storage)
+    if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET && process.env.GOOGLE_REFRESH_TOKEN) {
+        const oauth2Client = new google.auth.OAuth2(
+            process.env.GOOGLE_CLIENT_ID.trim(),
+            process.env.GOOGLE_CLIENT_SECRET.trim()
+        );
+        oauth2Client.setCredentials({
+            refresh_token: process.env.GOOGLE_REFRESH_TOKEN.trim()
+        });
+        authClient = oauth2Client;
+        console.log('[Google Workspace] Authenticated successfully via OAuth2 User Account (15GB Storage)');
+        return authClient;
+    }
+
+    // 2. Service Account Fallback
     const resolved = resolveCredentials();
     if (!resolved) {
-        throw new Error('Google Service Account credentials not found. Please ensure GOOGLE_SERVICE_ACCOUNT_KEY_JSON or GOOGLE_SERVICE_ACCOUNT_KEY_PATH in Render contains the service account JSON.');
+        throw new Error('Google credentials not found. Please provide GOOGLE_REFRESH_TOKEN / GOOGLE_CLIENT_ID or GOOGLE_SERVICE_ACCOUNT_KEY_JSON.');
     }
 
     if (resolved.credentials) {
