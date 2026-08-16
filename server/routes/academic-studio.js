@@ -35,6 +35,7 @@ router.get('/documents', async (req, res) => {
             SELECT 
                 d.*,
                 c.class_name,
+                sec.section_name,
                 s.subject_name,
                 ay.year_name as academic_year_name,
                 at.term_name,
@@ -43,6 +44,7 @@ router.get('/documents', async (req, res) => {
                 rev.full_name as current_reviewer_name
             FROM academic_documents d
             LEFT JOIN classes c ON d.class_id = c.class_id
+            LEFT JOIN sections sec ON d.section_id = sec.section_id
             LEFT JOIN subjects s ON d.subject_id = s.subject_id
             LEFT JOIN academic_years ay ON d.academic_year_id = ay.id
             LEFT JOIN academic_terms at ON d.term_id = at.id
@@ -57,6 +59,10 @@ router.get('/documents', async (req, res) => {
         if (class_id) {
             query += ` AND d.class_id = $${paramIdx++}`;
             params.push(class_id);
+        }
+        if (req.query.section_id) {
+            query += ` AND d.section_id = $${paramIdx++}`;
+            params.push(req.query.section_id);
         }
         if (subject_id) {
             query += ` AND d.subject_id = $${paramIdx++}`;
@@ -103,6 +109,7 @@ router.get('/documents/:id', async (req, res) => {
             SELECT 
                 d.*,
                 c.class_name,
+                sec.section_name,
                 s.subject_name,
                 ay.year_name as academic_year_name,
                 at.term_name,
@@ -111,6 +118,7 @@ router.get('/documents/:id', async (req, res) => {
                 rev.full_name as current_reviewer_name
             FROM academic_documents d
             LEFT JOIN classes c ON d.class_id = c.class_id
+            LEFT JOIN sections sec ON d.section_id = sec.section_id
             LEFT JOIN subjects s ON d.subject_id = s.subject_id
             LEFT JOIN academic_years ay ON d.academic_year_id = ay.id
             LEFT JOIN academic_terms at ON d.term_id = at.id
@@ -153,6 +161,7 @@ router.post('/documents', async (req, res) => {
             category = 'exam',
             template_type = 'doc',
             class_id,
+            section_id,
             subject_id,
             academic_year_id,
             term_id,
@@ -168,8 +177,9 @@ router.post('/documents', async (req, res) => {
 
         await client.query('BEGIN');
 
-        // Fetch Class Name, Subject Name, and Academic Year Name
+        // Fetch Class Name, Section Name, Subject Name, and Academic Year Name
         let className = 'General Class';
+        let sectionName = '';
         let subjectName = 'General Subject';
         let yearName = 'Academic 2026-2027';
         let termName = 'Mid-Term';
@@ -179,6 +189,14 @@ router.post('/documents', async (req, res) => {
         if (class_id) {
             const clRes = await client.query('SELECT class_name FROM classes WHERE class_id = $1', [class_id]);
             if (clRes.rows.length > 0) className = clRes.rows[0].class_name;
+        }
+
+        if (section_id) {
+            const scRes = await client.query('SELECT section_name FROM sections WHERE section_id = $1', [section_id]);
+            if (scRes.rows.length > 0) {
+                sectionName = scRes.rows[0].section_name;
+                className = `${className} (${sectionName})`;
+            }
         }
 
         if (subject_id) {
@@ -222,17 +240,18 @@ router.post('/documents', async (req, res) => {
         // Insert Record in PostgreSQL
         const insertRes = await client.query(`
             INSERT INTO academic_documents (
-                title, category, template_type, class_id, subject_id, 
+                title, category, template_type, class_id, section_id, subject_id, 
                 academic_year_id, term_id, created_by_teacher_id,
                 google_file_id, google_webview_link, google_embed_link, google_folder_id,
                 status, current_reviewer_role, total_marks, scheduled_date, instructions
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'draft', 'Coordinator', $13, $14, $15)
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, 'draft', 'Coordinator', $14, $15, $16)
             RETURNING *
         `, [
             title.trim(),
             category,
             template_type,
             class_id || null,
+            section_id || null,
             subject_id || null,
             academic_year_id || null,
             term_id || null,

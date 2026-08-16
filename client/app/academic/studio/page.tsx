@@ -11,6 +11,7 @@ export default function AcademicStudioPage() {
 
     const [documents, setDocuments] = useState<any[]>([]);
     const [classes, setClasses] = useState<any[]>([]);
+    const [sections, setSections] = useState<any[]>([]);
     const [subjects, setSubjects] = useState<any[]>([]);
     const [activeYear, setActiveYear] = useState<any>(null);
     const [academicTerms, setAcademicTerms] = useState<any[]>([]);
@@ -29,6 +30,7 @@ export default function AcademicStudioPage() {
     const [formCategory, setFormCategory] = useState('exam');
     const [formTemplateType, setFormTemplateType] = useState('doc');
     const [formClassId, setFormClassId] = useState('');
+    const [formSectionId, setFormSectionId] = useState('');
     const [formSubjectId, setFormSubjectId] = useState('');
     const [formTermId, setFormTermId] = useState('');
     const [formMarks, setFormMarks] = useState('50');
@@ -44,15 +46,17 @@ export default function AcademicStudioPage() {
     const fetchInitialData = async () => {
         setLoading(true);
         try {
-            const [docsRes, clsRes, sbRes, yrRes] = await Promise.all([
+            const [docsRes, clsRes, secRes, sbRes, yrRes] = await Promise.all([
                 fetch(`${API_URL}/academic-studio/documents`),
                 fetch(`${API_URL}/academic/classes`),
+                fetch(`${API_URL}/academic/classes/sections`),
                 fetch(`${API_URL}/academic/subjects`),
                 fetch(`${API_URL}/academic/years`)
             ]);
 
             if (docsRes.ok) setDocuments(await docsRes.json());
             if (clsRes.ok) setClasses(await clsRes.json());
+            if (secRes.ok) setSections(await secRes.json());
             if (sbRes.ok) setSubjects(await sbRes.json());
             if (yrRes.ok) {
                 const yrData = await yrRes.json();
@@ -83,6 +87,14 @@ export default function AcademicStudioPage() {
         } catch { }
     };
 
+    // Filtered dropdowns for modal
+    const availableSections = sections.filter(sec => !formClassId || String(sec.class_id) === formClassId);
+    const availableSubjects = subjects.filter(sub => {
+        if (formSectionId) return String(sub.section_id) === formSectionId;
+        if (formClassId) return String(sub.class_id) === formClassId;
+        return true;
+    });
+
     const handleCreateDocument = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!formTitle.trim()) {
@@ -100,6 +112,7 @@ export default function AcademicStudioPage() {
                     category: formCategory,
                     template_type: formTemplateType,
                     class_id: formClassId || null,
+                    section_id: formSectionId || null,
                     subject_id: formSubjectId || null,
                     academic_year_id: activeYear?.id || null,
                     term_id: formTermId || null,
@@ -177,13 +190,14 @@ export default function AcademicStudioPage() {
         setFormCategory('exam');
         setFormTemplateType('doc');
         setFormClassId('');
+        setFormSectionId('');
         setFormSubjectId('');
         setFormMarks('50');
         setFormScheduledDate('');
         setFormInstructions('');
     };
 
-    // Filtered documents
+    // Filtered documents for hub
     const filteredDocs = documents.filter(d => {
         if (activeCategory !== 'all' && d.category !== activeCategory) return false;
         if (selectedClass && String(d.class_id) !== selectedClass) return false;
@@ -394,7 +408,7 @@ export default function AcademicStudioPage() {
                                         <div className="d-flex flex-wrap gap-1.5 text-muted small mb-3">
                                             {doc.class_name && (
                                                 <span className="badge bg-light text-dark border" style={{ borderRadius: '8px', fontSize: '0.72rem' }}>
-                                                    <i className="bi bi-mortarboard me-1 text-primary"></i>{doc.class_name}
+                                                    <i className="bi bi-mortarboard me-1 text-primary"></i>{doc.class_name} {doc.section_name ? `(${doc.section_name})` : ''}
                                                 </span>
                                             )}
                                             {doc.subject_name && (
@@ -506,22 +520,6 @@ export default function AcademicStudioPage() {
 
                                 <form onSubmit={handleCreateDocument} className="modal-body p-3.5 p-sm-4">
                                     <div className="row g-3">
-                                        {/* Active Academic Year Banner (Auto-Selected) */}
-                                        <div className="col-12">
-                                            <div className="p-3 bg-light border d-flex flex-column flex-sm-row justify-content-between align-items-start align-items-sm-center gap-2" style={{ borderRadius: '14px' }}>
-                                                <div>
-                                                    <span className="text-muted small text-uppercase" style={{ fontSize: '0.72rem', letterSpacing: '0.5px' }}>Active Academic Year</span>
-                                                    <div className="text-dark" style={{ fontWeight: 600, fontSize: '0.95rem' }}>
-                                                        <i className="bi bi-calendar-check text-primary me-1.5"></i>
-                                                        {activeYear ? activeYear.year_name : 'Loading Academic Year...'}
-                                                    </div>
-                                                </div>
-                                                <span className="badge bg-success bg-opacity-10 text-success border border-success px-3 py-1.5 rounded-pill" style={{ fontSize: '0.75rem', fontWeight: 600 }}>
-                                                    <i className="bi bi-check-circle-fill me-1"></i> Current Active Session
-                                                </span>
-                                            </div>
-                                        </div>
-
                                         {/* 1. Document Type Cards */}
                                         <div className="col-12">
                                             <label className="form-label text-muted text-uppercase mb-2" style={{ fontSize: '0.76rem', letterSpacing: '0.5px', fontWeight: 600 }}>
@@ -558,11 +556,18 @@ export default function AcademicStudioPage() {
                                             </div>
                                         </div>
 
-                                        {/* 2. Title */}
+                                        {/* 2. Title with compact Academic Session Badge */}
                                         <div className="col-12 mt-3">
-                                            <label className="form-label text-muted text-uppercase mb-1" style={{ fontSize: '0.76rem', letterSpacing: '0.5px', fontWeight: 600 }}>
-                                                2. Document Title <span className="text-danger">*</span>
-                                            </label>
+                                            <div className="d-flex justify-content-between align-items-center mb-1">
+                                                <label className="form-label text-muted text-uppercase mb-0" style={{ fontSize: '0.76rem', letterSpacing: '0.5px', fontWeight: 600 }}>
+                                                    2. Document Title <span className="text-danger">*</span>
+                                                </label>
+                                                {activeYear && (
+                                                    <span className="badge bg-success bg-opacity-10 text-success border border-success px-2.5 py-1" style={{ borderRadius: '8px', fontSize: '0.72rem', fontWeight: 500 }}>
+                                                        <i className="bi bi-calendar-check me-1"></i> Session: {activeYear.year_name} (Active)
+                                                    </span>
+                                                )}
+                                            </div>
                                             <input
                                                 type="text"
                                                 className="form-control"
@@ -574,13 +579,17 @@ export default function AcademicStudioPage() {
                                             />
                                         </div>
 
-                                        {/* Class & Subject */}
-                                        <div className="col-12 col-md-6">
-                                            <label className="form-label text-muted text-uppercase mb-1" style={{ fontSize: '0.76rem', letterSpacing: '0.5px', fontWeight: 600 }}>Target Class</label>
+                                        {/* 3. Class -> Section -> Subject Cascading Selection */}
+                                        <div className="col-12 col-md-4">
+                                            <label className="form-label text-muted text-uppercase mb-1" style={{ fontSize: '0.76rem', letterSpacing: '0.5px', fontWeight: 600 }}>Class</label>
                                             <select
                                                 className="form-select"
                                                 value={formClassId}
-                                                onChange={e => setFormClassId(e.target.value)}
+                                                onChange={e => {
+                                                    setFormClassId(e.target.value);
+                                                    setFormSectionId('');
+                                                    setFormSubjectId('');
+                                                }}
                                                 style={{ borderRadius: '12px', padding: '10px 14px', fontSize: '0.88rem' }}
                                             >
                                                 <option value="">Select Class...</option>
@@ -590,8 +599,27 @@ export default function AcademicStudioPage() {
                                             </select>
                                         </div>
 
-                                        <div className="col-12 col-md-6">
-                                            <label className="form-label text-muted text-uppercase mb-1" style={{ fontSize: '0.76rem', letterSpacing: '0.5px', fontWeight: 600 }}>Target Subject</label>
+                                        <div className="col-12 col-md-4">
+                                            <label className="form-label text-muted text-uppercase mb-1" style={{ fontSize: '0.76rem', letterSpacing: '0.5px', fontWeight: 600 }}>Section</label>
+                                            <select
+                                                className="form-select"
+                                                value={formSectionId}
+                                                onChange={e => {
+                                                    setFormSectionId(e.target.value);
+                                                    setFormSubjectId('');
+                                                }}
+                                                style={{ borderRadius: '12px', padding: '10px 14px', fontSize: '0.88rem' }}
+                                                disabled={!formClassId && availableSections.length === 0}
+                                            >
+                                                <option value="">All / Select Section...</option>
+                                                {availableSections.map(s => (
+                                                    <option key={s.section_id} value={s.section_id}>{s.section_name}</option>
+                                                ))}
+                                            </select>
+                                        </div>
+
+                                        <div className="col-12 col-md-4">
+                                            <label className="form-label text-muted text-uppercase mb-1" style={{ fontSize: '0.76rem', letterSpacing: '0.5px', fontWeight: 600 }}>Subject</label>
                                             <select
                                                 className="form-select"
                                                 value={formSubjectId}
@@ -599,8 +627,10 @@ export default function AcademicStudioPage() {
                                                 style={{ borderRadius: '12px', padding: '10px 14px', fontSize: '0.88rem' }}
                                             >
                                                 <option value="">Select Subject...</option>
-                                                {subjects.map(s => (
-                                                    <option key={s.subject_id} value={s.subject_id}>{s.subject_name}</option>
+                                                {availableSubjects.map(s => (
+                                                    <option key={s.subject_id} value={s.subject_id}>
+                                                        {s.subject_name} {s.section_name ? `(${s.section_name})` : ''}
+                                                    </option>
                                                 ))}
                                             </select>
                                         </div>
@@ -626,7 +656,7 @@ export default function AcademicStudioPage() {
 
                                         {/* Marks (For Exams/Tests) */}
                                         {['exam', 'test'].includes(formCategory) && (
-                                            <div className="col-12 col-md-6">
+                                            <div className="col-12 col-md-3">
                                                 <label className="form-label text-muted text-uppercase mb-1" style={{ fontSize: '0.76rem', letterSpacing: '0.5px', fontWeight: 600 }}>Total Marks</label>
                                                 <input
                                                     type="number"
@@ -640,7 +670,7 @@ export default function AcademicStudioPage() {
 
                                         {/* Date */}
                                         {['exam', 'test'].includes(formCategory) && (
-                                            <div className="col-12 col-md-6">
+                                            <div className="col-12 col-md-3">
                                                 <label className="form-label text-muted text-uppercase mb-1" style={{ fontSize: '0.76rem', letterSpacing: '0.5px', fontWeight: 600 }}>Scheduled Date</label>
                                                 <input
                                                     type="date"
@@ -654,7 +684,7 @@ export default function AcademicStudioPage() {
 
                                         {/* Instructions */}
                                         <div className="col-12">
-                                            <label className="form-label text-muted text-uppercase mb-1" style={{ fontSize: '0.76rem', letterSpacing: '0.5px', fontWeight: 600 }}>Special Instructions</label>
+                                            <label className="form-label text-muted text-uppercase mb-1" style={{ fontSize: '0.76rem', letterSpacing: '0.5px', fontWeight: 600 }}>Special Instructions / Note</label>
                                             <textarea
                                                 className="form-control"
                                                 rows={2}

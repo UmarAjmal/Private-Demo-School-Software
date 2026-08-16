@@ -292,6 +292,7 @@ async function runEssentialMigrations() {
                 category VARCHAR(50) NOT NULL,
                 template_type VARCHAR(50) NOT NULL DEFAULT 'doc',
                 class_id INT REFERENCES classes(class_id) ON DELETE SET NULL,
+                section_id INT REFERENCES sections(section_id) ON DELETE SET NULL,
                 subject_id INT REFERENCES subjects(subject_id) ON DELETE SET NULL,
                 academic_year_id INT REFERENCES academic_years(id) ON DELETE SET NULL,
                 term_id INT REFERENCES academic_terms(id) ON DELETE SET NULL,
@@ -316,7 +317,9 @@ async function runEssentialMigrations() {
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
+            ALTER TABLE academic_documents ADD COLUMN IF NOT EXISTS section_id INT REFERENCES sections(section_id) ON DELETE SET NULL;
             CREATE INDEX IF NOT EXISTS idx_acad_docs_class ON academic_documents(class_id);
+            CREATE INDEX IF NOT EXISTS idx_acad_docs_section ON academic_documents(section_id);
             CREATE INDEX IF NOT EXISTS idx_acad_docs_subject ON academic_documents(subject_id);
             CREATE INDEX IF NOT EXISTS idx_acad_docs_status ON academic_documents(status);
             CREATE INDEX IF NOT EXISTS idx_acad_docs_teacher ON academic_documents(created_by_teacher_id);

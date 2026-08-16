@@ -24,16 +24,35 @@ let sheetsClient = null;
 function getAuth() {
     if (authClient) return authClient;
 
-    if (!fs.existsSync(KEY_FILE_PATH)) {
-        throw new Error(`Google Service Account JSON key file not found at: ${KEY_FILE_PATH}`);
+    // 1. Check if JSON string is provided directly via environment variables (ideal for Render / Cloud deployments)
+    if (process.env.GOOGLE_SERVICE_ACCOUNT_KEY_JSON) {
+        try {
+            let jsonStr = process.env.GOOGLE_SERVICE_ACCOUNT_KEY_JSON.trim();
+            // Handle optional base64 encoded string
+            if (jsonStr.startsWith('ey') && !jsonStr.startsWith('{')) {
+                jsonStr = Buffer.from(jsonStr, 'base64').toString('utf-8');
+            }
+            const credentials = JSON.parse(jsonStr);
+            authClient = new google.auth.GoogleAuth({
+                credentials,
+                scopes: SCOPES
+            });
+            return authClient;
+        } catch (e) {
+            console.error('Failed to parse GOOGLE_SERVICE_ACCOUNT_KEY_JSON:', e.message);
+        }
     }
 
-    authClient = new google.auth.GoogleAuth({
-        keyFile: KEY_FILE_PATH,
-        scopes: SCOPES
-    });
+    // 2. Fallback to local JSON key file
+    if (fs.existsSync(KEY_FILE_PATH)) {
+        authClient = new google.auth.GoogleAuth({
+            keyFile: KEY_FILE_PATH,
+            scopes: SCOPES
+        });
+        return authClient;
+    }
 
-    return authClient;
+    throw new Error(`Google Service Account credentials not found. On Render/Production, please set GOOGLE_SERVICE_ACCOUNT_KEY_JSON in environment variables. Locally, place google-service-account.json in server root.`);
 }
 
 function getDrive() {
